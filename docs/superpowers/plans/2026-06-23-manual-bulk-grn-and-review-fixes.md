@@ -12,11 +12,8 @@ Spec: [`docs/superpowers/specs/2026-06-23-manual-bulk-grn-and-review-fixes-desig
 
 ## Global Constraints
 
-- **Dual-version (HARD):** must work on Frappe/ERPNext **v15 (15.102.1)** and **v16 (16.13.0)**. Every test runs on BOTH benches.
-- **Verification environments** — `bench --site gate.localhost <cmd>` below is shorthand for running on BOTH (the checkout is symlinked into both benches on branch `issue-17-multi-invoice-grn`):
-  - v15: `cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost <cmd>`
-  - v16: `cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost <cmd>`
-  - **NOTE:** bench16's web server 404s (dead `default_site`) and `bench serve` must be restarted after symlink changes — these only affect *browser* use; CLI `run-tests` works on both.
+- **Dual-version (HARD):** must work on Frappe/ERPNext **v15** and **v16**. Every test runs on BOTH a v15 site and a v16 site.
+- **Verification environments** — `bench --site gate.localhost <cmd>` in the steps below is a placeholder: run the command on BOTH versions (a v15 site and a v16 site), each from its own bench root. Substitute your actual site names.
 - **Module path:** `gate_entry.gate_entry.doctype.gate_pass.test_gate_pass`.
 - **All-or-nothing** PR creation uses a **DB savepoint** (`frappe.db.savepoint` / `frappe.db.rollback(save_point=...)`), NOT a bare `frappe.db.rollback()` — a bare rollback would nuke the caller's/test's whole transaction.
 - PRs are created as **drafts** (`pr.insert()`, never submit).
@@ -460,7 +457,7 @@ git commit -m "docs: stores-triggered bulk GRN creation (#17)"
 
 - [ ] **Full app suite on both versions**
 
-Run on each: `bench --site development.localhost run-tests --app gate_entry` (bench15) and `bench --site frappe16.localhost run-tests --app gate_entry` (bench16).
+Run `bench --site gate.localhost run-tests --app gate_entry` on both a v15 site and a v16 site.
 Expected: all pass — `TestCreatePurchaseReceipts` (4), `TestSubmittedGatePassUpdate` (1), plus the retained cancel/`grn_status`/validation tests; no leftover references to `generate_purchase_receipts` / `_notify_grn_generation` / the realtime event.
 
 - [ ] **Grep for dead references**

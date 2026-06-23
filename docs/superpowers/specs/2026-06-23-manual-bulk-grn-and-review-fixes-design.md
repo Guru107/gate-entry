@@ -77,7 +77,7 @@ On a **submitted** Purchase Order Gate Pass, `gate_pass.js` shows a **"Create Pu
 - `create_purchase_receipts`: happy path (N invoices → N draft PRs, linked, `grn_status="Draft"`); **all-or-nothing** (force one invoice to fail → assert `frappe.db` has **zero** new PRs and the gate pass invoice rows still have no `purchase_receipt`); idempotent re-call when all PRs exist (no-op); **permission denied** for a user without PR create permission.
 - Migration: migrate a **submitted** legacy gate pass successfully (the previously-untested branch).
 - Remove/replace the obsolete background-job test; keep cancel-blocked / draft-deletion / `grn_status→Submitted` tests.
-- All green on Frappe/ERPNext v15 (15.102.1) and v16 (16.13.0).
+- All green on Frappe/ERPNext v15 and v16.
 
 ---
 

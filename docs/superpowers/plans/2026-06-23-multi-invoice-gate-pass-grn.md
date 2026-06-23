@@ -16,11 +16,8 @@ Spec: [`docs/superpowers/specs/2026-06-23-multi-invoice-gate-pass-grn-design.md`
 - **PRs are created as drafts** (`pr.insert()`, never `pr.submit()`).
 - **PR creation runs in a background job** via `frappe.enqueue(..., queue="long", now=frappe.flags.in_test)` — mirror `on_stock_entry_submit` ([gate_pass.py:2233](../../../gate_entry/gate_entry/doctype/gate_pass/gate_pass.py)).
 - **Invoice numbers are unique within a Gate Pass**; every item qty is `> 0`; cumulative qty per PO item ≤ ordered (ERPNext over-receipt tolerance respected).
-- **Dual-version support (HARD):** the app must work on **Frappe/ERPNext v15 (15.102.1) and v16 (16.13.0)**. Avoid version-specific APIs; guard every optional ERPNext field access with `.get(...)`. **Every `migrate` / `run-tests` step must pass on BOTH benches.**
-- **Verification environments** — `bench --site gate.localhost <cmd>` in the steps below is shorthand for running the command on **both**:
-  - v15: `cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost <cmd>`
-  - v16: `cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost <cmd>`
-  Both benches symlink `apps/gate_entry` → this checkout and are on branch `issue-17-multi-invoice-grn`, so edits here are live in both with no copy step.
+- **Dual-version support (HARD):** the app must work on **Frappe/ERPNext v15 and v16**. Avoid version-specific APIs; guard every optional ERPNext field access with `.get(...)`. **Every `migrate` / `run-tests` step must pass on BOTH versions.**
+- **Verification environments** — `bench --site gate.localhost <cmd>` in the steps below is a placeholder: run the command on BOTH versions (a v15 site and a v16 site), each from its own bench root. Substitute your actual site names.
 - **Module path for tests:** `gate_entry.gate_entry.doctype.gate_pass.test_gate_pass`.
 - Frappe does NOT drop DB columns when a field is removed from a DocType JSON — orphan columns persist, so the migration patch can read old values via raw SQL.
 - Follow existing code style: tabs for indentation in Python, the file's existing patterns.
