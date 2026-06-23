@@ -533,6 +533,194 @@ class TestGatePass(FrappeTestCase):
 			self.assertIn("reference_number", fields_cleared)
 
 
+def _ensure_test_fixtures_for_po():
+	"""Discover an INR company that has a Stores warehouse, creating fixtures as needed.
+
+	Strategy (in order):
+	1. Use "Wind Power LLP" if it exists with INR currency (v15 standard).
+	2. Look for any INR company that already has a "Stores - <abbr>" warehouse.
+	3. Fall back to "_Test Company" (always exists with INR in ERPNext test sites).
+	"""
+	supplier_name = "_Test Gate Entry Supplier"
+	item_code = "_Test Gate Entry Item 1"
+
+	# --- Step 1: prefer Wind Power LLP if it exists and uses INR ---
+	company = None
+	if frappe.db.exists("Company", "Wind Power LLP"):
+		if frappe.db.get_value("Company", "Wind Power LLP", "default_currency") == "INR":
+			company = "Wind Power LLP"
+
+	# --- Step 2: any INR company that already has a Stores warehouse ---
+	if not company:
+		rows = frappe.db.sql(
+			"""
+			SELECT w.company FROM tabWarehouse w
+			JOIN tabCompany c ON c.name = w.company
+			WHERE w.warehouse_name = 'Stores'
+			  AND c.default_currency = 'INR'
+			  AND w.disabled = 0
+			LIMIT 1
+			""",
+			as_dict=True,
+		)
+		if rows:
+			company = rows[0].company
+
+	# --- Step 3: fall back to _Test Company ---
+	if not company:
+		company = "_Test Company"
+
+	# Resolve warehouse name from company abbr
+	company_abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
+	warehouse_name = f"Stores - {company_abbr}"
+
+	# Ensure warehouse exists
+	if not frappe.db.exists("Warehouse", warehouse_name):
+		parent_wh = frappe.db.get_value(
+			"Warehouse", {"warehouse_name": "All Warehouses", "company": company}, "name"
+		)
+		if not parent_wh:
+			pw = frappe.get_doc({
+				"doctype": "Warehouse",
+				"warehouse_name": "All Warehouses",
+				"is_group": 1,
+				"company": company,
+			})
+			pw.flags.ignore_permissions = True
+			pw.flags.ignore_validate = True
+			pw.insert(ignore_if_duplicate=True)
+			frappe.db.commit()
+			parent_wh = pw.name or f"All Warehouses - {company_abbr}"
+		wh = frappe.get_doc({
+			"doctype": "Warehouse",
+			"warehouse_name": "Stores",
+			"is_group": 0,
+			"company": company,
+			"parent_warehouse": parent_wh,
+		})
+		wh.flags.ignore_permissions = True
+		wh.flags.ignore_validate = True
+		wh.insert(ignore_if_duplicate=True)
+		frappe.db.commit()
+
+	# Ensure supplier exists
+	if not frappe.db.exists("Supplier", supplier_name):
+		supplier = frappe.get_doc({
+			"doctype": "Supplier",
+			"supplier_name": supplier_name,
+			"supplier_group": "All Supplier Groups",
+			"country": "India",
+		})
+		supplier.flags.ignore_permissions = True
+		supplier.flags.ignore_validate = True
+		supplier.flags.ignore_links = True
+		supplier.insert(ignore_if_duplicate=True)
+		frappe.db.commit()
+
+	# Ensure item exists.  Include HSN code for india_compliance compatibility.
+	if not frappe.db.exists("Item", item_code):
+		item = frappe.get_doc({
+			"doctype": "Item",
+			"item_code": item_code,
+			"item_name": item_code,
+			"item_group": "Products",
+			"stock_uom": "Nos",
+			"is_stock_item": 1,
+			"valuation_rate": 100,
+			"gst_hsn_code": "61149090",
+		})
+		item.flags.ignore_permissions = True
+		item.flags.ignore_validate = True
+		item.flags.ignore_links = True
+		item.insert(ignore_if_duplicate=True)
+		frappe.db.commit()
+
+	# Ensure the company has an active fiscal year so PO can be submitted
+	_ensure_fiscal_year_for_company(company)
+
+	return supplier_name, item_code, warehouse_name, company
+
+
+def _ensure_fiscal_year_for_company(company):
+	"""Add company to the current active fiscal year if not already present."""
+	from frappe.utils import getdate
+	from erpnext.accounts.utils import get_fiscal_year
+	try:
+		fy_name = get_fiscal_year(getdate(), company=company)[0]
+		return  # Fiscal year already active for this company
+	except Exception:
+		pass
+
+	# Get any active fiscal year and add this company to it
+	today = frappe.utils.getdate()
+	fy_list = frappe.get_all(
+		"Fiscal Year",
+		filters={"year_start_date": ["<=", today], "year_end_date": [">=", today], "disabled": 0},
+		fields=["name"],
+		limit=1,
+	)
+	if not fy_list:
+		return
+	fy_doc = frappe.get_doc("Fiscal Year", fy_list[0].name)
+	fy_companies = [row.company for row in fy_doc.get("companies") or []]
+	if company not in fy_companies:
+		fy_doc.append("companies", {"company": company})
+		fy_doc.flags.ignore_permissions = True
+		fy_doc.save()
+		frappe.db.commit()
+
+
+def _make_test_purchase_order(qty=10):
+	"""Create and submit a test Purchase Order using gate_entry fixture data."""
+	supplier_name, item_code, warehouse_name, company = _ensure_test_fixtures_for_po()
+
+	po = frappe.new_doc("Purchase Order")
+	po.supplier = supplier_name
+	po.company = company
+	po.schedule_date = frappe.utils.nowdate()
+	po.append("items", {
+		"item_code": item_code,
+		"qty": qty,
+		"rate": 100,
+		"schedule_date": frappe.utils.nowdate(),
+		"warehouse": warehouse_name,
+	})
+	po.insert()
+	po.submit()
+	return po
+
+
+class TestAutoGRN(FrappeTestCase):
+	def test_generate_purchase_receipts_creates_one_pr_per_invoice(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import generate_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = frappe.new_doc("Gate Pass")
+		gp.document_reference = "Purchase Order"
+		gp.reference_number = po.name
+		gp.company = po.company
+		gp.supplier = po.supplier
+		gp.vehicle_number = "KA01AB1234"
+		gp.driver_name = "Test Driver"
+		for inv, qty in (("INV-A", 3), ("INV-B", 4)):
+			gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
+			gp.append("gate_pass_table", {
+				"item_code": po.items[0].item_code,
+				"received_qty": qty,
+				"order_item_name": po.items[0].name,
+				"warehouse": po.items[0].warehouse,
+				"supplier_delivery_note": inv,
+			})
+		gp.submit()
+
+		generate_purchase_receipts(gp.name)
+		gp.reload()
+
+		prs = [row.purchase_receipt for row in gp.gate_pass_invoices]
+		self.assertEqual(len([p for p in prs if p]), 2)
+		self.assertTrue(all(row.grn_status == "Draft" for row in gp.gate_pass_invoices))
+
+
 class TestPurchaseInvoiceValidation(FrappeTestCase):
 	def _po_gate_pass(self, invoices):
 		gp = frappe.new_doc("Gate Pass")
