@@ -690,51 +690,8 @@ def _make_test_purchase_order(qty=10):
 	return po
 
 
-class TestAutoGRN(FrappeTestCase):
-	def test_generate_purchase_receipts_creates_one_pr_per_invoice(self):
-		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import generate_purchase_receipts
-
-		po = _make_test_purchase_order(qty=10)
-		gp = frappe.new_doc("Gate Pass")
-		gp.document_reference = "Purchase Order"
-		gp.reference_number = po.name
-		gp.company = po.company
-		gp.supplier = po.supplier
-		gp.vehicle_number = "KA01AB1234"
-		gp.driver_name = "Test Driver"
-		for inv, qty in (("INV-A", 3), ("INV-B", 4)):
-			gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
-			gp.append("gate_pass_table", {
-				"item_code": po.items[0].item_code,
-				"received_qty": qty,
-				"order_item_name": po.items[0].name,
-				"warehouse": po.items[0].warehouse,
-				"supplier_delivery_note": inv,
-			})
-		gp.submit()
-
-		generate_purchase_receipts(gp.name)
-		gp.reload()
-
-		prs = [row.purchase_receipt for row in gp.gate_pass_invoices]
-		self.assertEqual(len([p for p in prs if p]), 2)
-		self.assertTrue(all(row.grn_status == "Draft" for row in gp.gate_pass_invoices))
-
-		# Idempotency: calling generate_purchase_receipts a second time must not
-		# create additional Purchase Receipts or overwrite the existing links.
-		pr_names_before = set(prs)
-		generate_purchase_receipts(gp.name)
-		gp.reload()
-
-		pr_names_after = {row.purchase_receipt for row in gp.gate_pass_invoices}
-		self.assertEqual(pr_names_after, pr_names_before, "invoice PR links changed after second run")
-		pr_count = frappe.db.count("Purchase Receipt", {"gate_pass": gp.name})
-		self.assertEqual(pr_count, 2, f"Expected 2 PRs for this gate pass, found {pr_count}")
-
-
-def _submitted_po_gate_pass(po, invoices):
-	"""Build and submit a Gate Pass for a PO, run generate_purchase_receipts, return reloaded doc."""
-	from gate_entry.gate_entry.doctype.gate_pass.gate_pass import generate_purchase_receipts
+def _build_submitted_gate_pass(po, invoices):
+	import frappe
 
 	gp = frappe.new_doc("Gate Pass")
 	gp.document_reference = "Purchase Order"
@@ -753,9 +710,84 @@ def _submitted_po_gate_pass(po, invoices):
 			"supplier_delivery_note": inv,
 		})
 	gp.submit()
-	generate_purchase_receipts(gp.name)
+	return gp
+
+
+def _submitted_po_gate_pass(po, invoices):
+	"""Build and submit a Gate Pass for a PO, call create_purchase_receipts, return reloaded doc."""
+	from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+	gp = _build_submitted_gate_pass(po, invoices)
+	create_purchase_receipts(gp.name)
 	gp.reload()
 	return gp
+
+
+class TestCreatePurchaseReceipts(FrappeTestCase):
+	def test_creates_one_draft_pr_per_invoice(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3), ("INV-B", 4)])
+
+		result = create_purchase_receipts(gp.name)
+		self.assertEqual(len(result["created"]), 2)
+
+		gp.reload()
+		prs = [r.purchase_receipt for r in gp.gate_pass_invoices]
+		self.assertEqual(len([p for p in prs if p]), 2)
+		self.assertTrue(all(r.grn_status == "Draft" for r in gp.gate_pass_invoices))
+		for p in prs:
+			self.assertEqual(frappe.db.get_value("Purchase Receipt", p, "docstatus"), 0)
+
+	def test_all_or_nothing_rolls_back_on_failure(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3), ("INV-B", 4)])
+		# Make INV-B fail: point its item at a non-existent PO Item so _build_purchase_receipt raises
+		for row in gp.gate_pass_table:
+			if row.supplier_delivery_note == "INV-B":
+				frappe.db.set_value("Gate Pass Table", row.name, "order_item_name", "NONEXISTENT", update_modified=False)
+
+		with self.assertRaises(Exception):
+			create_purchase_receipts(gp.name)
+
+		gp.reload()
+		self.assertTrue(all(not r.purchase_receipt for r in gp.gate_pass_invoices))
+		self.assertEqual(frappe.db.count("Purchase Receipt", {"gate_pass": gp.name}), 0)
+
+	def test_idempotent_recall_creates_nothing_new(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])
+		self.assertEqual(len(create_purchase_receipts(gp.name)["created"]), 1)
+		self.assertEqual(len(create_purchase_receipts(gp.name)["created"]), 0)
+		self.assertEqual(frappe.db.count("Purchase Receipt", {"gate_pass": gp.name}), 1)
+
+	def test_requires_purchase_receipt_create_permission(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])
+
+		# A role-less user has no Purchase Receipt create permission. The endpoint's
+		# permission check is its first line (before any get_doc), so this is enough.
+		email = "grn_perm_test@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User", "email": email, "first_name": "NoPerm",
+				"send_welcome_email": 0, "roles": [],
+			}).insert(ignore_permissions=True)
+
+		frappe.set_user(email)
+		try:
+			self.assertFalse(frappe.has_permission("Purchase Receipt", "create"))
+			with self.assertRaises(frappe.PermissionError):
+				create_purchase_receipts(gp.name)
+		finally:
+			frappe.set_user("Administrator")
 
 
 class TestCancelBehavior(FrappeTestCase):

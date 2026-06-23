@@ -572,7 +572,7 @@ class GatePass(Document):
 
 		invoices = self.get("gate_pass_invoices") or []
 		if not invoices:
-			frappe.throw(_("Add at least one supplier invoice before submitting."))
+			frappe.throw(_("Add at least one supplier invoice before saving."))
 
 		# Unique invoice numbers
 		seen = set()
@@ -862,15 +862,6 @@ class GatePass(Document):
 
 		frappe.msgprint(_("Gate Pass submitted successfully"))
 		self.update_stock_entry_reference()
-
-		if self.document_reference == "Purchase Order":
-			frappe.enqueue(
-				generate_purchase_receipts,
-				gate_pass_name=self.name,
-				enqueued_by=frappe.session.user,
-				queue="long",
-				now=frappe.flags.in_test,
-			)
 
 	def before_cancel(self):
 		"""
@@ -1558,11 +1549,24 @@ def get_outbound_compliance_status(document_reference, reference_number, gate_pa
 	}
 
 
-def generate_purchase_receipts(gate_pass_name, enqueued_by=None):
-	"""Background job: create one draft Purchase Receipt per invoice row."""
+@frappe.whitelist()
+def create_purchase_receipts(gate_pass_name):
+	"""Create one draft Purchase Receipt per invoice row that has none yet.
+
+	All-or-nothing: builds inside a DB savepoint and rolls the whole batch
+	back if any invoice fails, so no partial set of receipts is left behind.
+	Runs synchronously as the calling (stores) user, respecting permissions.
+	"""
+	if not frappe.has_permission("Purchase Receipt", "create"):
+		frappe.throw(
+			_("You don't have permission to create Purchase Receipt"), frappe.PermissionError
+		)
+
 	gate_pass = frappe.get_doc("Gate Pass", gate_pass_name)
-	if gate_pass.document_reference != "Purchase Order" or gate_pass.docstatus != 1:
-		return
+	if gate_pass.docstatus != 1:
+		frappe.throw(_("Gate Pass must be submitted before creating Purchase Receipts"))
+	if gate_pass.document_reference != "Purchase Order":
+		frappe.throw(_("This Gate Pass is not for a Purchase Order"))
 
 	items_by_invoice = {}
 	for item in gate_pass.get("gate_pass_table") or []:
@@ -1570,50 +1574,43 @@ def generate_purchase_receipts(gate_pass_name, enqueued_by=None):
 		if tag:
 			items_by_invoice.setdefault(tag, []).append(item)
 
-	created, failed = [], []
-	for inv in gate_pass.get("gate_pass_invoices") or []:
-		invoice_no = (inv.supplier_delivery_note or "").strip()
-		if inv.purchase_receipt:
-			continue  # already generated (idempotent)
-		item_rows = items_by_invoice.get(invoice_no, [])
-		if not item_rows:
-			continue
-		try:
-			pr = _build_purchase_receipt(gate_pass, invoice_no, item_rows)
-			# background job: write PR link without bumping the submitted doc's modified timestamp
+	invoice_rows = gate_pass.get("gate_pass_invoices") or []
+	pending = [inv for inv in invoice_rows if not inv.purchase_receipt]
+	skipped = [inv.supplier_delivery_note for inv in invoice_rows if inv.purchase_receipt]
+
+	if not pending:
+		return {"created": [], "skipped": skipped, "message": _("All GRNs have already been created.")}
+
+	created = []
+	current_invoice = None
+	frappe.db.savepoint("create_grns")
+	try:
+		for inv in pending:
+			current_invoice = (inv.supplier_delivery_note or "").strip()
+			item_rows = items_by_invoice.get(current_invoice, [])
+			if not item_rows:
+				frappe.throw(_("Invoice {0} has no items.").format(current_invoice))
+			pr = _build_purchase_receipt(gate_pass, current_invoice, item_rows)
 			inv.db_set("purchase_receipt", pr.name, update_modified=False)
 			inv.db_set("grn_status", "Draft", update_modified=False)
 			created.append(pr.name)
-		except Exception:
-			failed.append(invoice_no)
-			frappe.log_error(
-				message=frappe.get_traceback(),
-				title=_("Auto GRN creation failed for Gate Pass {0} invoice {1}").format(
-					gate_pass_name, invoice_no
-				),
+	except Exception:
+		frappe.db.rollback(save_point="create_grns")
+		frappe.log_error(
+			message=frappe.get_traceback(),
+			title=_("Bulk GRN creation failed for Gate Pass {0}").format(gate_pass_name),
+		)
+		frappe.throw(
+			_("Could not create Purchase Receipt for invoice {0} — no receipts were created. See Error Log.").format(
+				current_invoice
 			)
+		)
 
-	frappe.db.commit()
-	_notify_grn_generation(gate_pass, enqueued_by, created, failed)
-
-
-def _notify_grn_generation(gate_pass, enqueued_by, created, failed):
-	"""Post a timeline comment and a desk notification to the guard."""
-	user = enqueued_by or gate_pass.owner
-	lines = []
-	if created:
-		lines.append(_("Created Purchase Receipts: {0}").format(", ".join(created)))
-	if failed:
-		lines.append(_("Failed for invoices: {0} (see Error Log)").format(", ".join(failed)))
-	message = "<br>".join(lines) or _("No Purchase Receipts were generated.")
-
-	gate_pass.add_comment("Comment", message)
-
-	frappe.publish_realtime(
-		"gate_pass_grn_generated",
-		{"gate_pass": gate_pass.name, "message": message},
-		user=user,
+	gate_pass.add_comment(
+		"Comment",
+		_("Created Purchase Receipts: {0} (by {1}).").format(", ".join(created), frappe.session.user),
 	)
+	return {"created": created, "skipped": skipped}
 
 
 def _build_purchase_receipt(gate_pass, invoice_no, item_rows):
