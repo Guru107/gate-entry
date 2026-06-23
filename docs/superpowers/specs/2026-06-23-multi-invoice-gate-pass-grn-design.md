@@ -14,6 +14,7 @@ This feature lets **one Gate Entry hold N invoices for one PO**, and the **syste
 
 ### In scope
 - **Purchase Order → Purchase Receipt** flow only.
+- **Compatibility:** must work on both **Frappe/ERPNext v15 and v16** (verified on both benches).
 
 ### Out of scope (explicit)
 - Subcontracting Order → Subcontracting Receipt, Sales Invoice, Delivery Note, and Stock Entry flows — untouched.
