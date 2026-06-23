@@ -23,7 +23,6 @@ frappe.ui.form.on("Gate Pass", {
 				},
 			};
 		});
-
 	},
 
 	async refresh(frm) {
@@ -282,7 +281,9 @@ function create_purchase_receipts(frm) {
 						const links = r.message.created
 							.map(
 								(n) =>
-									`<a href="/app/purchase-receipt/${encodeURIComponent(n)}">${frappe.utils.escape_html(n)}</a>`
+									`<a href="/app/purchase-receipt/${encodeURIComponent(
+										n
+									)}">${frappe.utils.escape_html(n)}</a>`
 							)
 							.join(", ");
 						frappe.msgprint({

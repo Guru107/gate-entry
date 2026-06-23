@@ -589,13 +589,9 @@ class GatePass(Document):
 		for item in self.get("gate_pass_table") or []:
 			tag = (item.supplier_delivery_note or "").strip()
 			if not tag:
-				frappe.throw(
-					_("Item {0} is not assigned to any invoice.").format(item.item_code)
-				)
+				frappe.throw(_("Item {0} is not assigned to any invoice.").format(item.item_code))
 			if tag not in seen:
-				frappe.throw(
-					_("Item {0} references unknown invoice {1}.").format(item.item_code, tag)
-				)
+				frappe.throw(_("Item {0} references unknown invoice {1}.").format(item.item_code, tag))
 			if flt(item.received_qty) <= 0:
 				frappe.throw(
 					_("Quantity for item {0} on invoice {1} must be greater than zero.").format(
@@ -1558,9 +1554,7 @@ def create_purchase_receipts(gate_pass_name):
 	Runs synchronously as the calling (stores) user, respecting permissions.
 	"""
 	if not frappe.has_permission("Purchase Receipt", "create"):
-		frappe.throw(
-			_("You don't have permission to create Purchase Receipt"), frappe.PermissionError
-		)
+		frappe.throw(_("You don't have permission to create Purchase Receipt"), frappe.PermissionError)
 
 	gate_pass = frappe.get_doc("Gate Pass", gate_pass_name)
 	if gate_pass.docstatus != 1:
@@ -1601,9 +1595,9 @@ def create_purchase_receipts(gate_pass_name):
 			title=_("Bulk GRN creation failed for Gate Pass {0}").format(gate_pass_name),
 		)
 		frappe.throw(
-			_("Could not create Purchase Receipt for invoice {0} — no receipts were created. See Error Log.").format(
-				current_invoice
-			)
+			_(
+				"Could not create Purchase Receipt for invoice {0} — no receipts were created. See Error Log."
+			).format(current_invoice)
 		)
 
 	gate_pass.add_comment(

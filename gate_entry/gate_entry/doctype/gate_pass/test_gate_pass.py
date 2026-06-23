@@ -580,24 +580,28 @@ def _ensure_test_fixtures_for_po():
 			"Warehouse", {"warehouse_name": "All Warehouses", "company": company}, "name"
 		)
 		if not parent_wh:
-			pw = frappe.get_doc({
-				"doctype": "Warehouse",
-				"warehouse_name": "All Warehouses",
-				"is_group": 1,
-				"company": company,
-			})
+			pw = frappe.get_doc(
+				{
+					"doctype": "Warehouse",
+					"warehouse_name": "All Warehouses",
+					"is_group": 1,
+					"company": company,
+				}
+			)
 			pw.flags.ignore_permissions = True
 			pw.flags.ignore_validate = True
 			pw.insert(ignore_if_duplicate=True)
 			frappe.db.commit()
 			parent_wh = pw.name or f"All Warehouses - {company_abbr}"
-		wh = frappe.get_doc({
-			"doctype": "Warehouse",
-			"warehouse_name": "Stores",
-			"is_group": 0,
-			"company": company,
-			"parent_warehouse": parent_wh,
-		})
+		wh = frappe.get_doc(
+			{
+				"doctype": "Warehouse",
+				"warehouse_name": "Stores",
+				"is_group": 0,
+				"company": company,
+				"parent_warehouse": parent_wh,
+			}
+		)
 		wh.flags.ignore_permissions = True
 		wh.flags.ignore_validate = True
 		wh.insert(ignore_if_duplicate=True)
@@ -605,12 +609,14 @@ def _ensure_test_fixtures_for_po():
 
 	# Ensure supplier exists
 	if not frappe.db.exists("Supplier", supplier_name):
-		supplier = frappe.get_doc({
-			"doctype": "Supplier",
-			"supplier_name": supplier_name,
-			"supplier_group": "All Supplier Groups",
-			"country": "India",
-		})
+		supplier = frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": supplier_name,
+				"supplier_group": "All Supplier Groups",
+				"country": "India",
+			}
+		)
 		supplier.flags.ignore_permissions = True
 		supplier.flags.ignore_validate = True
 		supplier.flags.ignore_links = True
@@ -619,16 +625,18 @@ def _ensure_test_fixtures_for_po():
 
 	# Ensure item exists.  Include HSN code for india_compliance compatibility.
 	if not frappe.db.exists("Item", item_code):
-		item = frappe.get_doc({
-			"doctype": "Item",
-			"item_code": item_code,
-			"item_name": item_code,
-			"item_group": "Products",
-			"stock_uom": "Nos",
-			"is_stock_item": 1,
-			"valuation_rate": 100,
-			"gst_hsn_code": "61149090",
-		})
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_code,
+				"item_group": "Products",
+				"stock_uom": "Nos",
+				"is_stock_item": 1,
+				"valuation_rate": 100,
+				"gst_hsn_code": "61149090",
+			}
+		)
 		item.flags.ignore_permissions = True
 		item.flags.ignore_validate = True
 		item.flags.ignore_links = True
@@ -643,10 +651,11 @@ def _ensure_test_fixtures_for_po():
 
 def _ensure_fiscal_year_for_company(company):
 	"""Add company to the current active fiscal year if not already present."""
-	from frappe.utils import getdate
 	from erpnext.accounts.utils import FiscalYearError, get_fiscal_year
+	from frappe.utils import getdate
+
 	try:
-		fy_name = get_fiscal_year(getdate(), company=company)[0]
+		get_fiscal_year(getdate(), company=company)
 		return  # Fiscal year already active for this company
 	except FiscalYearError:
 		pass
@@ -678,13 +687,16 @@ def _make_test_purchase_order(qty=10):
 	po.supplier = supplier_name
 	po.company = company
 	po.schedule_date = frappe.utils.nowdate()
-	po.append("items", {
-		"item_code": item_code,
-		"qty": qty,
-		"rate": 100,
-		"schedule_date": frappe.utils.nowdate(),
-		"warehouse": warehouse_name,
-	})
+	po.append(
+		"items",
+		{
+			"item_code": item_code,
+			"qty": qty,
+			"rate": 100,
+			"schedule_date": frappe.utils.nowdate(),
+			"warehouse": warehouse_name,
+		},
+	)
 	po.insert()
 	po.submit()
 	return po
@@ -700,13 +712,16 @@ def _build_submitted_gate_pass(po, invoices):
 	gp.driver_name = "Test Driver"
 	for inv, qty in invoices:
 		gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
-		gp.append("gate_pass_table", {
-			"item_code": po.items[0].item_code,
-			"received_qty": qty,
-			"order_item_name": po.items[0].name,
-			"warehouse": po.items[0].warehouse,
-			"supplier_delivery_note": inv,
-		})
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": po.items[0].item_code,
+				"received_qty": qty,
+				"order_item_name": po.items[0].name,
+				"warehouse": po.items[0].warehouse,
+				"supplier_delivery_note": inv,
+			},
+		)
 	gp.submit()
 	return gp
 
@@ -746,7 +761,9 @@ class TestCreatePurchaseReceipts(FrappeTestCase):
 		# Make INV-B fail: point its item at a non-existent PO Item so _build_purchase_receipt raises
 		for row in gp.gate_pass_table:
 			if row.supplier_delivery_note == "INV-B":
-				frappe.db.set_value("Gate Pass Table", row.name, "order_item_name", "NONEXISTENT", update_modified=False)
+				frappe.db.set_value(
+					"Gate Pass Table", row.name, "order_item_name", "NONEXISTENT", update_modified=False
+				)
 
 		with self.assertRaises(Exception):
 			create_purchase_receipts(gp.name)
@@ -774,10 +791,15 @@ class TestCreatePurchaseReceipts(FrappeTestCase):
 		# permission check is its first line (before any get_doc), so this is enough.
 		email = "grn_perm_test@example.com"
 		if not frappe.db.exists("User", email):
-			frappe.get_doc({
-				"doctype": "User", "email": email, "first_name": "NoPerm",
-				"send_welcome_email": 0, "roles": [],
-			}).insert(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "NoPerm",
+					"send_welcome_email": 0,
+					"roles": [],
+				}
+			).insert(ignore_permissions=True)
 
 		frappe.set_user(email)
 		try:
@@ -890,8 +912,15 @@ class TestPurchaseInvoiceValidation(FrappeTestCase):
 
 	def test_duplicate_invoice_number_rejected(self):
 		gp = self._po_gate_pass(["INV-1", "INV-1"])
-		gp.append("gate_pass_table", {"item_code": "X", "received_qty": 5,
-			"order_item_name": "POI-1", "supplier_delivery_note": "INV-1"})
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": "X",
+				"received_qty": 5,
+				"order_item_name": "POI-1",
+				"supplier_delivery_note": "INV-1",
+			},
+		)
 		with self.assertRaises(frappe.ValidationError):
 			gp.validate_purchase_invoices()
 
@@ -902,8 +931,15 @@ class TestPurchaseInvoiceValidation(FrappeTestCase):
 
 	def test_zero_qty_rejected(self):
 		gp = self._po_gate_pass(["INV-1"])
-		gp.append("gate_pass_table", {"item_code": "X", "received_qty": 0,
-			"order_item_name": "POI-1", "supplier_delivery_note": "INV-1"})
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": "X",
+				"received_qty": 0,
+				"order_item_name": "POI-1",
+				"supplier_delivery_note": "INV-1",
+			},
+		)
 		with self.assertRaises(frappe.ValidationError):
 			gp.validate_purchase_invoices()
 

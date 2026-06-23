@@ -890,9 +890,7 @@ class GatePassCustomUI {
 		const invoices = this.frm.doc.gate_pass_invoices || [];
 		const editable = this.shouldAllowQuantityEdit();
 
-		const groups = invoices
-			.map((inv) => this.render_invoice_group(inv, editable))
-			.join("");
+		const groups = invoices.map((inv) => this.render_invoice_group(inv, editable)).join("");
 
 		const add_invoice = editable
 			? `<button class="btn btn-sm btn-primary add-invoice-btn" type="button">
@@ -941,15 +939,25 @@ class GatePassCustomUI {
 			.join("");
 
 		const add_item = editable
-			? `<button class="btn btn-xs btn-default inv-add-item" data-invoice="${frappe.utils.escape_html(invoice_no)}">
+			? `<button class="btn btn-xs btn-default inv-add-item" data-invoice="${frappe.utils.escape_html(
+					invoice_no
+			  )}">
 					<i class="fa fa-plus"></i> ${__("Add Item")}</button>`
 			: "";
 
 		return `
-			<div class="invoice-group" data-invoice="${frappe.utils.escape_html(invoice_no)}" style="border:1px solid var(--border-color);border-radius:6px;padding:10px;margin-bottom:10px;">
+			<div class="invoice-group" data-invoice="${frappe.utils.escape_html(
+				invoice_no
+			)}" style="border:1px solid var(--border-color);border-radius:6px;padding:10px;margin-bottom:10px;">
 				<div class="invoice-group-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
 					<strong>${__("Invoice")}: ${frappe.utils.escape_html(invoice_no) || __("(unnamed)")}</strong>
-					${editable ? `<button class="btn btn-xs btn-danger inv-remove-invoice" data-invoice="${frappe.utils.escape_html(invoice_no)}">${__("Remove Invoice")}</button>` : ""}
+					${
+						editable
+							? `<button class="btn btn-xs btn-danger inv-remove-invoice" data-invoice="${frappe.utils.escape_html(
+									invoice_no
+							  )}">${__("Remove Invoice")}</button>`
+							: ""
+					}
 				</div>
 				<div class="invoice-items">${items_html}</div>
 				<div class="mt-2">${add_item}</div>
@@ -958,24 +966,46 @@ class GatePassCustomUI {
 
 	bind_invoice_events() {
 		const self = this;
-		this.wrapper.find(".add-invoice-btn").off("click").on("click", () => self.add_invoice());
-		this.wrapper.find(".inv-remove-invoice").off("click").on("click", function () {
-			self.remove_invoice($(this).data("invoice"));
-		});
-		this.wrapper.find(".inv-add-item").off("click").on("click", function () {
-			self.add_item_to_invoice($(this).data("invoice"));
-		});
-		this.wrapper.find(".inv-remove-item").off("click").on("click", function () {
-			self.remove_invoice_item($(this).data("name"));
-		});
-		this.wrapper.find(".inv-qty-input").off("change").on("change", function () {
-			self.set_invoice_item_qty($(this).data("name"), parseFloat($(this).val() || 0));
-		});
+		this.wrapper
+			.find(".add-invoice-btn")
+			.off("click")
+			.on("click", () => self.add_invoice());
+		this.wrapper
+			.find(".inv-remove-invoice")
+			.off("click")
+			.on("click", function () {
+				self.remove_invoice($(this).data("invoice"));
+			});
+		this.wrapper
+			.find(".inv-add-item")
+			.off("click")
+			.on("click", function () {
+				self.add_item_to_invoice($(this).data("invoice"));
+			});
+		this.wrapper
+			.find(".inv-remove-item")
+			.off("click")
+			.on("click", function () {
+				self.remove_invoice_item($(this).data("name"));
+			});
+		this.wrapper
+			.find(".inv-qty-input")
+			.off("change")
+			.on("change", function () {
+				self.set_invoice_item_qty($(this).data("name"), parseFloat($(this).val() || 0));
+			});
 	}
 
 	add_invoice() {
 		frappe.prompt(
-			[{ fieldname: "invoice_no", label: __("Supplier Invoice No"), fieldtype: "Data", reqd: 1 }],
+			[
+				{
+					fieldname: "invoice_no",
+					label: __("Supplier Invoice No"),
+					fieldtype: "Data",
+					reqd: 1,
+				},
+			],
 			(values) => {
 				const invoice_no = (values.invoice_no || "").trim();
 				const exists = (this.frm.doc.gate_pass_invoices || []).some(
@@ -1023,7 +1053,8 @@ class GatePassCustomUI {
 				if (!r.message) return;
 				const allocated = this.allocated_qty_by_po_item();
 				const available = r.message.filter((item) => {
-					const remaining = flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
+					const remaining =
+						flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
 					return remaining > 0;
 				});
 				if (!available.length) {
@@ -1072,11 +1103,16 @@ class GatePassCustomUI {
 		dialog.fields_dict.items_html.$wrapper.html(
 			`<div class="item-selector-list">${selectable
 				.map((item) => {
-					const remaining = flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
+					const remaining =
+						flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
 					return `<div class="checkbox"><label>
 						<input type="checkbox" value="${item.order_item_name}">
-						<strong>${frappe.utils.escape_html(item.item_code)}</strong> - ${frappe.utils.escape_html(item.item_name || "")}
-						<span class="text-muted">(${__("Pending")}: ${remaining} ${frappe.utils.escape_html(item.uom || "")})</span>
+						<strong>${frappe.utils.escape_html(item.item_code)}</strong> - ${frappe.utils.escape_html(
+						item.item_name || ""
+					)}
+						<span class="text-muted">(${__("Pending")}: ${remaining} ${frappe.utils.escape_html(
+						item.uom || ""
+					)})</span>
 					</label></div>`;
 				})
 				.join("")}</div>`
@@ -1110,7 +1146,9 @@ class GatePassCustomUI {
 		if (!row) return;
 		if (value <= 0) {
 			frappe.msgprint(__("Quantity must be greater than zero."));
-			this.wrapper.find(`.inv-qty-input[data-name="${row_name}"]`).val(flt(row.received_qty));
+			this.wrapper
+				.find(`.inv-qty-input[data-name="${row_name}"]`)
+				.val(flt(row.received_qty));
 			return;
 		}
 		const allocatedOther = (this.frm.doc.gate_pass_table || [])
