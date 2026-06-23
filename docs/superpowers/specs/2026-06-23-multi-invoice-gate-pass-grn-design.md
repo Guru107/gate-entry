@@ -105,6 +105,7 @@ On `Gate Pass.on_submit` (PO flow):
    - `pr.insert()` (**draft** — not submitted).
    - Writes `invoice_row.purchase_receipt = pr.name` and `grn_status = "Draft"` back via `db_set` (no re-validation of the submitted gate pass).
 3. A failure on one invoice's PR is logged (`frappe.log_error`) and does **not** roll back the Gate Entry or the other invoices' PRs — the guard's gate entry stands; stores resolves the flagged PR.
+4. **On completion, the guard is notified.** A realtime/desk notification (and a timeline comment on the Gate Entry) tells the guard the GRNs were generated, listing the created Purchase Receipts (and flagging any invoice whose PR failed). This is the only PR-related feedback the guard sees — they still never *act* on a PR.
 
 The whitelisted `create_purchase_receipt` endpoint is removed (or reduced to the internal helper); nothing in the UI calls it anymore.
 
@@ -161,8 +162,9 @@ Audit and update for the new child-table structure (they currently read the reti
 
 ---
 
-## 12. Open questions / assumptions to revisit during planning
+## 12. Resolved decisions & remaining planning detail
 
-- Exact `grn_status` value set (e.g. `Not Created` is transient since rows only exist once items are added; a row without a PR yet shows `Pending`).
-- Whether draft-PR cleanup on cancel should delete or cancel (drafts can be deleted; only submitted ones need cancel — but submitted blocks cancel anyway).
-- Background-job visibility: how/whether to surface "GRNs are being generated" to the guard (a comment/notification on completion).
+- **Cancel cleanup (confirmed):** auto-created **draft** PRs are deleted when the Gate Entry is cancelled (drafts can be deleted; submitted PRs block cancel anyway, so no orphan drafts are left behind).
+- **Completion notification (confirmed):** the guard receives a notification + Gate Entry timeline comment when the background GRN generation finishes (see §6.4).
+- **`grn_status` value set:** `Pending` (invoice recorded, PR not yet generated — i.e. between submit and job completion) → `Draft` (PR created) → `Submitted` → `Cancelled`.
+- Remaining detail for planning: exact realtime channel/event for the notification, and copy for the timeline comment.
