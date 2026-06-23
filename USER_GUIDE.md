@@ -122,9 +122,8 @@ Create a Gate In pass when:
 
 10. **After Submission**
     - The gate pass status changes to "Submitted"
-    - The system automatically creates a draft Purchase Receipt in the background
-    - You will receive a desk notification once the Purchase Receipt has been created
-    - You do not need to take any further action — the store manager will process the draft Purchase Receipt
+    - Your job is done. A stores or downstream user will open the submitted Gate Pass and click **"Create Purchase Receipt"** to generate the draft Purchase Receipt(s).
+    - You do not need to take any further action — you will not receive a notification for GRN creation.
 
 ### Step-by-Step: Creating a Gate In Pass for Purchase Order — Multiple Invoices
 
@@ -152,10 +151,12 @@ When a supplier vehicle carries material against **more than one supplier invoic
    - Click **"Submit"**.
 
 6. **After submission**
-   - The system creates **one draft Purchase Receipt per invoice** in the background.
-   - When generation is complete you will receive a notification listing the Purchase Receipts created (and flagging any invoice whose GRN could not be created, so stores can follow up).
-   - The Gate Pass shows a summary table: **Invoice No → Purchase Receipt → status** for every GRN from this vehicle entry.
+   - The gate pass status changes to "Submitted". Your job is done.
+   - The Gate Pass shows a summary table: **Invoice No → Purchase Receipt → status** for every GRN from this vehicle entry (initially all pending).
    - You do not need to take any further action on the Purchase Receipts.
+
+> **Stores: creating GRNs**
+> A stores or downstream user (with Purchase Receipt create permission) opens the submitted Gate Pass and clicks **"Create Purchase Receipt"**. This creates one draft Purchase Receipt for every invoice on the gate pass in a single, all-or-nothing action — if any invoice fails, no receipts are created and a clear error is shown. The button is hidden once all invoices already have a Purchase Receipt.
 
 ### Step-by-Step: Creating a Gate In Pass for Subcontracting Order
 
@@ -606,8 +607,8 @@ The system provides three main reports:
 3. Click **"Add Invoice"** and enter the first invoice number; add its items and quantities.
 4. Click **"Add Invoice"** again and enter the second invoice number; add its items and quantities.
 5. Repeat for the third invoice.
-6. Submit the Gate Pass — the system will create three separate draft Purchase Receipts (one per invoice) automatically.
-7. You will receive a notification confirming the GRNs were created. No further action is required from you.
+6. Submit the Gate Pass — your job ends here.
+7. A stores user will open the submitted Gate Pass and click **"Create Purchase Receipt"** to generate one draft Purchase Receipt per invoice. No further action is required from you.
 
 ### Scenario 8: Compliance Documents Not Ready
 
