@@ -24,17 +24,6 @@ frappe.ui.form.on("Gate Pass", {
 			};
 		});
 
-		// Register realtime listener once per form instance so the guard
-		// receives a desk alert when the background GRN job finishes.
-		if (!frm._grn_listener_registered) {
-			frm._grn_listener_registered = true;
-			frappe.realtime.on("gate_pass_grn_generated", (data) => {
-				frappe.show_alert({ message: data.message, indicator: "green" });
-				if (data.gate_pass && data.gate_pass === frm.doc.name) {
-					frm.reload_doc();
-				}
-			});
-		}
 	},
 
 	async refresh(frm) {
@@ -235,6 +224,30 @@ function setup_receipt_buttons(frm) {
 	const subcontracting_receipt_created = frm.doc.subcontracting_receipt;
 
 	// Show appropriate button based on document reference type
+	if (frm.doc.document_reference === "Purchase Order") {
+		if (frm.doc.docstatus !== 1) {
+			return;
+		}
+		const invoices = frm.doc.gate_pass_invoices || [];
+		const all_created = invoices.length > 0 && invoices.every((inv) => inv.purchase_receipt);
+		if (!all_created) {
+			frm.add_custom_button(__("Create Purchase Receipt"), function () {
+				create_purchase_receipts(frm);
+			}).addClass("btn-primary");
+		}
+		invoices
+			.filter((inv) => inv.purchase_receipt)
+			.forEach((inv) => {
+				frm.add_custom_button(
+					inv.purchase_receipt,
+					function () {
+						frappe.set_route("Form", "Purchase Receipt", inv.purchase_receipt);
+					},
+					__("View Purchase Receipts")
+				);
+			});
+		return;
+	}
 	if (frm.doc.document_reference === "Subcontracting Order") {
 		if (!subcontracting_receipt_created) {
 			frm.add_custom_button(__("Create Subcontracting Receipt"), function () {
@@ -247,6 +260,44 @@ function setup_receipt_buttons(frm) {
 			});
 		}
 	}
+}
+
+/**
+ * Create all per-invoice draft Purchase Receipts for this Gate Pass (bulk, all-or-nothing).
+ */
+function create_purchase_receipts(frm) {
+	frappe.confirm(
+		__("Create draft Purchase Receipts for all invoices on this Gate Pass?"),
+		function () {
+			frappe.call({
+				method: "gate_entry.gate_entry.doctype.gate_pass.gate_pass.create_purchase_receipts",
+				args: { gate_pass_name: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Creating Purchase Receipts..."),
+				callback: function (r) {
+					if (!r.message) {
+						return;
+					}
+					if (r.message.created && r.message.created.length) {
+						const links = r.message.created
+							.map(
+								(n) =>
+									`<a href="/app/purchase-receipt/${encodeURIComponent(n)}">${frappe.utils.escape_html(n)}</a>`
+							)
+							.join(", ");
+						frappe.msgprint({
+							title: __("Purchase Receipts Created"),
+							message: __("Created: {0}", [links]),
+							indicator: "green",
+						});
+						frm.reload_doc();
+					} else if (r.message.message) {
+						frappe.msgprint(r.message.message);
+					}
+				},
+			});
+		}
+	);
 }
 
 /**
