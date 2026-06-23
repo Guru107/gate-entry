@@ -1110,6 +1110,7 @@ class GatePassCustomUI {
 		if (!row) return;
 		if (value <= 0) {
 			frappe.msgprint(__("Quantity must be greater than zero."));
+			this.wrapper.find(`.inv-qty-input[data-name="${row_name}"]`).val(flt(row.received_qty));
 			return;
 		}
 		const allocatedOther = (this.frm.doc.gate_pass_table || [])
