@@ -1551,47 +1551,20 @@ def get_outbound_compliance_status(document_reference, reference_number, gate_pa
 	}
 
 
-@frappe.whitelist()
-def create_purchase_receipt(gate_pass_name):
+def _build_purchase_receipt(gate_pass, invoice_no, item_rows):
+	"""Build and insert a draft Purchase Receipt for one invoice's items.
+
+	`item_rows` is a list of Gate Pass Table rows (already filtered to one
+	invoice). Returns the inserted (draft) Purchase Receipt document.
 	"""
-	Create Purchase Receipt from Gate Pass
-	Maps all fields from Purchase Order Item and uses received quantities from Gate Pass
-
-	Args:
-		gate_pass_name: Name of the Gate Pass
-
-	Returns:
-		Name of the created Purchase Receipt
-	"""
-	# Check permissions
-	if not frappe.has_permission("Purchase Receipt", "create"):
-		frappe.throw(_("You don't have permission to create Purchase Receipt"))
-
-	# Get Gate Pass
-	gate_pass = frappe.get_doc("Gate Pass", gate_pass_name)
-
-	# Validate Gate Pass
-	if gate_pass.docstatus != 1:
-		frappe.throw(_("Gate Pass must be submitted before creating Purchase Receipt"))
-
-	if gate_pass.purchase_receipt:
-		frappe.throw(_("Purchase Receipt has already been created for this Gate Pass"))
-
-	if gate_pass.document_reference != "Purchase Order":
-		frappe.throw(_("This Gate Pass is not for a Purchase Order"))
-
-	# Get Purchase Order document for header-level fields
 	purchase_order = frappe.get_doc("Purchase Order", gate_pass.reference_number)
 
-	# Create Purchase Receipt with header mapping from Purchase Order
 	pr = frappe.new_doc("Purchase Receipt")
 	pr.supplier = gate_pass.supplier
 	pr.company = gate_pass.company
-	pr.gate_pass = gate_pass_name
-	if gate_pass.get("supplier_delivery_note"):
-		pr.supplier_delivery_note = gate_pass.supplier_delivery_note
-
-	# Map additional header fields from Purchase Order
+	pr.gate_pass = gate_pass.name
+	pr.supplier_delivery_note = invoice_no
+	# --- header mapping copied verbatim from the old create_purchase_receipt ---
 	pr.supplier_warehouse = purchase_order.supplier_warehouse
 	pr.currency = purchase_order.currency
 	pr.conversion_rate = purchase_order.conversion_rate
@@ -1608,40 +1581,29 @@ def create_purchase_receipt(gate_pass_name):
 	pr.contact_email = purchase_order.contact_email
 	pr.shipping_address = purchase_order.shipping_address
 	pr.shipping_address_display = purchase_order.shipping_address_display
-
-	# set the vehicle number and driver name from gate pass
 	pr.vehicle_no = gate_pass.vehicle_number
 	pr.driver_name = gate_pass.driver_name
 
-	# Add items - fetch complete details from Purchase Order Item and override quantities from Gate Pass
-	for gate_pass_item in gate_pass.gate_pass_table:
-		# Get the original Purchase Order Item
+	for gate_pass_item in item_rows:
 		po_item = frappe.get_doc("Purchase Order Item", gate_pass_item.order_item_name)
-
-		# Calculate quantities based on received quantity from Gate Pass
 		received_qty = flt(gate_pass_item.received_qty)
 		conversion_factor = flt(po_item.conversion_factor) or 1.0
 		received_stock_qty = received_qty * conversion_factor
 
-		# Build Purchase Receipt Item with all fields from PO Item that exist in PR Item
 		pr_item = {
-			# Basic item details from PO
 			"item_code": po_item.item_code,
 			"item_name": po_item.item_name,
 			"description": po_item.description,
 			"item_group": po_item.item_group,
 			"brand": po_item.brand,
 			"image": po_item.image,
-			# UOM and conversion
 			"uom": po_item.uom,
 			"stock_uom": po_item.stock_uom,
 			"conversion_factor": conversion_factor,
-			# Quantities - from Gate Pass
 			"qty": received_qty,
 			"received_qty": received_qty,
 			"stock_qty": received_stock_qty,
 			"received_stock_qty": received_stock_qty,
-			# Pricing from PO (base values will be calculated by set_missing_values)
 			"rate": flt(po_item.rate),
 			"price_list_rate": flt(po_item.price_list_rate),
 			"base_rate": flt(po_item.base_rate),
@@ -1650,71 +1612,48 @@ def create_purchase_receipt(gate_pass_name):
 			"discount_amount": flt(po_item.discount_amount),
 			"margin_type": po_item.margin_type,
 			"margin_rate_or_amount": flt(po_item.margin_rate_or_amount),
-			# Warehouse - prefer from Gate Pass, fallback to PO
 			"warehouse": gate_pass_item.warehouse or po_item.warehouse,
 			"from_warehouse": po_item.from_warehouse if po_item.get("from_warehouse") else None,
-			# Accounting from PO
 			"expense_account": po_item.expense_account,
 			"cost_center": po_item.cost_center,
-			# Reference fields from PO
 			"project": po_item.project if po_item.get("project") else None,
 			"schedule_date": po_item.schedule_date if po_item.get("schedule_date") else None,
-			# Material Request references
 			"material_request": po_item.material_request if po_item.get("material_request") else None,
 			"material_request_item": po_item.material_request_item
 			if po_item.get("material_request_item")
 			else None,
-			# Sales Order references (for drop-ship scenarios)
 			"sales_order": po_item.sales_order if po_item.get("sales_order") else None,
 			"sales_order_item": po_item.sales_order_item if po_item.get("sales_order_item") else None,
-			# Manufacturing references
 			"bom": po_item.bom if po_item.get("bom") else None,
 			"wip_composite_asset": po_item.wip_composite_asset
 			if po_item.get("wip_composite_asset")
 			else None,
-			# Manufacturer details
 			"manufacturer": po_item.manufacturer if po_item.get("manufacturer") else None,
 			"manufacturer_part_no": po_item.manufacturer_part_no
 			if po_item.get("manufacturer_part_no")
 			else None,
 			"supplier_part_no": po_item.supplier_part_no if po_item.get("supplier_part_no") else None,
-			# Asset fields
 			"is_fixed_asset": po_item.is_fixed_asset if po_item.get("is_fixed_asset") else 0,
 			"asset_location": po_item.asset_location if po_item.get("asset_location") else None,
 			"asset_category": po_item.asset_category if po_item.get("asset_category") else None,
-			# Tax
 			"item_tax_template": po_item.item_tax_template if po_item.get("item_tax_template") else None,
 			"item_tax_rate": po_item.item_tax_rate if po_item.get("item_tax_rate") else None,
 			"gst_treatment": po_item.gst_treatment if po_item.get("gst_treatment") else None,
-			# Other fields
 			"product_bundle": po_item.product_bundle if po_item.get("product_bundle") else None,
 			"is_free_item": po_item.is_free_item if po_item.get("is_free_item") else 0,
-			# Order linking - Critical for PO-PR linkage
 			"purchase_order": gate_pass.reference_number,
 			"purchase_order_item": gate_pass_item.order_item_name,
 		}
-
-		# Add rejected_warehouse only if specified in Gate Pass
 		if gate_pass_item.get("rejected_warehouse"):
 			pr_item["rejected_warehouse"] = gate_pass_item.rejected_warehouse
-
-		# Add apply_tds if present in PO
 		if po_item.get("apply_tds"):
 			pr_item["apply_tds"] = po_item.apply_tds
 
 		pr.append("items", pr_item)
 
-	# Set missing values and calculate totals (mimics ERPNext's set_missing_values)
 	pr.run_method("set_missing_values")
-	# pr.run_method("calculate_taxes_and_totals")
-
 	pr.insert()
-
-	# Update Gate Pass with receipt reference
-	gate_pass.purchase_receipt = pr.name
-	gate_pass.save(ignore_permissions=True)
-
-	return pr.name
+	return pr
 
 
 @frappe.whitelist()
