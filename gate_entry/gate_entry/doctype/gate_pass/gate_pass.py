@@ -1582,6 +1582,7 @@ def generate_purchase_receipts(gate_pass_name, enqueued_by=None):
 			continue
 		try:
 			pr = _build_purchase_receipt(gate_pass, invoice_no, item_rows)
+			# background job: write PR link without bumping the submitted doc's modified timestamp
 			inv.db_set("purchase_receipt", pr.name, update_modified=False)
 			inv.db_set("grn_status", "Draft", update_modified=False)
 			created.append(pr.name)

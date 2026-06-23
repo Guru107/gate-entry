@@ -644,11 +644,11 @@ def _ensure_test_fixtures_for_po():
 def _ensure_fiscal_year_for_company(company):
 	"""Add company to the current active fiscal year if not already present."""
 	from frappe.utils import getdate
-	from erpnext.accounts.utils import get_fiscal_year
+	from erpnext.accounts.utils import FiscalYearError, get_fiscal_year
 	try:
 		fy_name = get_fiscal_year(getdate(), company=company)[0]
 		return  # Fiscal year already active for this company
-	except Exception:
+	except FiscalYearError:
 		pass
 
 	# Get any active fiscal year and add this company to it
@@ -719,6 +719,17 @@ class TestAutoGRN(FrappeTestCase):
 		prs = [row.purchase_receipt for row in gp.gate_pass_invoices]
 		self.assertEqual(len([p for p in prs if p]), 2)
 		self.assertTrue(all(row.grn_status == "Draft" for row in gp.gate_pass_invoices))
+
+		# Idempotency: calling generate_purchase_receipts a second time must not
+		# create additional Purchase Receipts or overwrite the existing links.
+		pr_names_before = set(prs)
+		generate_purchase_receipts(gp.name)
+		gp.reload()
+
+		pr_names_after = {row.purchase_receipt for row in gp.gate_pass_invoices}
+		self.assertEqual(pr_names_after, pr_names_before, "invoice PR links changed after second run")
+		pr_count = frappe.db.count("Purchase Receipt", {"gate_pass": gp.name})
+		self.assertEqual(pr_count, 2, f"Expected 2 PRs for this gate pass, found {pr_count}")
 
 
 class TestPurchaseInvoiceValidation(FrappeTestCase):
