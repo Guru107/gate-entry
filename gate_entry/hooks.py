@@ -220,7 +220,7 @@ document_links = {
 		{"link_doctype": "Stock Entry", "link_fieldname": "gate_pass"},
 	],
 	"Purchase Receipt": [
-		{"link_doctype": "Gate Pass", "link_fieldname": "purchase_receipt"},
+		{"link_doctype": "Gate Pass", "link_fieldname": "gate_pass"},
 	],
 	"Subcontracting Receipt": [
 		{"link_doctype": "Gate Pass", "link_fieldname": "subcontracting_receipt"},

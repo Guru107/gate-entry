@@ -236,7 +236,10 @@ def fetch_inbound_pending(
 	conditions = [
 		"gp.docstatus = 1",
 		"gp.entry_type = 'Gate In'",
-		"ifnull(gp.purchase_receipt, '') = ''",
+		"""not exists (
+			select 1 from `tabGate Pass Invoice` gpi
+			where gpi.parent = gp.name and ifnull(gpi.purchase_receipt, '') != ''
+		)""",
 		"ifnull(gp.subcontracting_receipt, '') = ''",
 	]
 
