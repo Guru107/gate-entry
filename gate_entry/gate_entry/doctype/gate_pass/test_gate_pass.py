@@ -632,6 +632,11 @@ def _ensure_test_fixtures_for_po():
 				"item_name": item_code,
 				"item_group": "Products",
 				"stock_uom": "Nos",
+				# ignore_validate (below) skips the auto-population of the UOM
+				# conversion table, so add the stock UOM row explicitly — otherwise
+				# a PO line resolving uom "Nos" fails with "UOM Nos not found in Item"
+				# on a clean DB (e.g. CI) where this item doesn't already exist.
+				"uoms": [{"uom": "Nos", "conversion_factor": 1.0}],
 				"is_stock_item": 1,
 				"valuation_rate": 100,
 				"gst_hsn_code": "61149090",
