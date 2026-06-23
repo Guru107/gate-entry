@@ -868,6 +868,19 @@ class TestGRNStatusSubmitted(FrappeTestCase):
 		)
 
 
+class TestSubmittedGatePassUpdate(FrappeTestCase):
+	def test_can_append_invoice_row_to_submitted_gate_pass_with_flag(self):
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])  # docstatus 1
+
+		gp.append("gate_pass_invoices", {"supplier_delivery_note": "INV-LATE", "grn_status": "Pending"})
+		gp.flags.ignore_validate_update_after_submit = True
+		gp.save(ignore_permissions=True)  # must NOT raise UpdateAfterSubmitError
+
+		gp.reload()
+		self.assertIn("INV-LATE", [r.supplier_delivery_note for r in gp.gate_pass_invoices])
+
+
 class TestPurchaseInvoiceValidation(FrappeTestCase):
 	def _po_gate_pass(self, invoices):
 		gp = frappe.new_doc("Gate Pass")

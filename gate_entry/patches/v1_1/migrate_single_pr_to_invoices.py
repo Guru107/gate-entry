@@ -63,6 +63,7 @@ def execute():
 
 			gate_pass.flags.ignore_validate = True
 			gate_pass.flags.ignore_links = True
+			gate_pass.flags.ignore_validate_update_after_submit = True
 			gate_pass.save(ignore_permissions=True)
 
 	# Drop only the orphan purchase_receipt column.
