@@ -38,6 +38,10 @@ class GatePassCustomUI {
 		return (this.frm?.doc?.entry_type || "Gate Out") === "Gate In";
 	}
 
+	isPurchaseOrderFlow() {
+		return this.frm?.doc?.document_reference === "Purchase Order" && this.isGateIn();
+	}
+
 	isStockEntry() {
 		return this.frm?.doc?.document_reference === "Stock Entry";
 	}
@@ -219,14 +223,19 @@ class GatePassCustomUI {
 	 * Main render method
 	 */
 	render() {
-		// Load items from child table before rendering
-		this.load_items_from_table();
-
 		// Ensure wrapper exists
 		if (!this.wrapper || !this.wrapper.length) {
 			console.error("Custom UI wrapper not found");
 			return;
 		}
+
+		if (this.isPurchaseOrderFlow()) {
+			this.render_invoice_grouped();
+			return;
+		}
+
+		// Load items from child table before rendering
+		this.load_items_from_table();
 
 		let html = `
 			<div class="gate-pass-custom-ui">
@@ -873,6 +882,263 @@ class GatePassCustomUI {
 
 	isOutbound() {
 		return (this.frm?.doc?.entry_type || "Gate Out") === "Gate Out";
+	}
+
+	// ── PO-flow: invoice-grouped rendering ─────────────────────────────────
+
+	render_invoice_grouped() {
+		const invoices = this.frm.doc.gate_pass_invoices || [];
+		const editable = this.shouldAllowQuantityEdit();
+
+		const groups = invoices
+			.map((inv) => this.render_invoice_group(inv, editable))
+			.join("");
+
+		const add_invoice = editable
+			? `<button class="btn btn-sm btn-primary add-invoice-btn" type="button">
+					<i class="fa fa-plus"></i> ${__("Add Invoice")}</button>`
+			: "";
+
+		this.wrapper.html(`
+			<div class="gate-pass-custom-ui">
+				<div class="gate-pass-items-header">
+					<h6 class="mb-3">${__("Supplier Invoices")}</h6>
+					${add_invoice}
+				</div>
+				<div class="gate-pass-invoices-container">
+					${invoices.length ? groups : this.render_empty_state()}
+				</div>
+			</div>
+		`);
+		this.bind_invoice_events();
+	}
+
+	render_invoice_group(inv, editable) {
+		const invoice_no = inv.supplier_delivery_note || "";
+		const rows = (this.frm.doc.gate_pass_table || []).filter(
+			(it) => (it.supplier_delivery_note || "") === invoice_no
+		);
+		const items_html = rows
+			.map(
+				(it) => `
+				<div class="item-row" data-name="${it.name}">
+					<div class="item-col item-code-col">${frappe.utils.escape_html(it.item_code)}</div>
+					<div class="item-col item-name-col">${frappe.utils.escape_html(it.item_name || "")}</div>
+					<div class="item-col received-qty-col">
+						<input type="number" class="form-control form-control-sm inv-qty-input"
+							data-name="${it.name}" min="0" step="0.001"
+							value="${flt(it.received_qty)}" ${editable ? "" : "disabled"} />
+					</div>
+					<div class="item-col actions-col">
+						${
+							editable
+								? `<button class="btn btn-xs btn-danger inv-remove-item" data-name="${it.name}"><i class="fa fa-minus"></i></button>`
+								: ""
+						}
+					</div>
+				</div>`
+			)
+			.join("");
+
+		const add_item = editable
+			? `<button class="btn btn-xs btn-default inv-add-item" data-invoice="${frappe.utils.escape_html(invoice_no)}">
+					<i class="fa fa-plus"></i> ${__("Add Item")}</button>`
+			: "";
+
+		return `
+			<div class="invoice-group" data-invoice="${frappe.utils.escape_html(invoice_no)}" style="border:1px solid var(--border-color);border-radius:6px;padding:10px;margin-bottom:10px;">
+				<div class="invoice-group-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+					<strong>${__("Invoice")}: ${frappe.utils.escape_html(invoice_no) || __("(unnamed)")}</strong>
+					${editable ? `<button class="btn btn-xs btn-danger inv-remove-invoice" data-invoice="${frappe.utils.escape_html(invoice_no)}">${__("Remove Invoice")}</button>` : ""}
+				</div>
+				<div class="invoice-items">${items_html}</div>
+				<div class="mt-2">${add_item}</div>
+			</div>`;
+	}
+
+	bind_invoice_events() {
+		const self = this;
+		this.wrapper.find(".add-invoice-btn").off("click").on("click", () => self.add_invoice());
+		this.wrapper.find(".inv-remove-invoice").off("click").on("click", function () {
+			self.remove_invoice($(this).data("invoice"));
+		});
+		this.wrapper.find(".inv-add-item").off("click").on("click", function () {
+			self.add_item_to_invoice($(this).data("invoice"));
+		});
+		this.wrapper.find(".inv-remove-item").off("click").on("click", function () {
+			self.remove_invoice_item($(this).data("name"));
+		});
+		this.wrapper.find(".inv-qty-input").off("change").on("change", function () {
+			self.set_invoice_item_qty($(this).data("name"), parseFloat($(this).val() || 0));
+		});
+	}
+
+	add_invoice() {
+		frappe.prompt(
+			[{ fieldname: "invoice_no", label: __("Supplier Invoice No"), fieldtype: "Data", reqd: 1 }],
+			(values) => {
+				const invoice_no = (values.invoice_no || "").trim();
+				const exists = (this.frm.doc.gate_pass_invoices || []).some(
+					(inv) => (inv.supplier_delivery_note || "").trim() === invoice_no
+				);
+				if (exists) {
+					frappe.msgprint(__("Invoice {0} already added.", [invoice_no]));
+					return;
+				}
+				const row = this.frm.add_child("gate_pass_invoices");
+				row.supplier_delivery_note = invoice_no;
+				row.grn_status = "Pending";
+				this.frm.refresh_field("gate_pass_invoices");
+				this.frm.dirty();
+				this.render();
+			},
+			__("Add Supplier Invoice"),
+			__("Add")
+		);
+	}
+
+	remove_invoice(invoice_no) {
+		frappe.confirm(__("Remove invoice {0} and its items?", [invoice_no]), () => {
+			this.frm.doc.gate_pass_invoices = (this.frm.doc.gate_pass_invoices || []).filter(
+				(inv) => (inv.supplier_delivery_note || "") !== invoice_no
+			);
+			this.frm.doc.gate_pass_table = (this.frm.doc.gate_pass_table || []).filter(
+				(it) => (it.supplier_delivery_note || "") !== invoice_no
+			);
+			this.frm.refresh_field("gate_pass_invoices");
+			this.frm.refresh_field("gate_pass_table");
+			this.frm.dirty();
+			this.render();
+		});
+	}
+
+	add_item_to_invoice(invoice_no) {
+		frappe.call({
+			method: "gate_entry.gate_entry.doctype.gate_pass.gate_pass.get_items",
+			args: {
+				document_reference: this.frm.doc.document_reference,
+				reference_number: this.frm.doc.reference_number,
+			},
+			callback: (r) => {
+				if (!r.message) return;
+				const allocated = this.allocated_qty_by_po_item();
+				const available = r.message.filter((item) => {
+					const remaining = flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
+					return remaining > 0;
+				});
+				if (!available.length) {
+					frappe.msgprint(__("No pending items left to add."));
+					return;
+				}
+				this.show_invoice_item_selector(invoice_no, available, allocated);
+			},
+		});
+	}
+
+	allocated_qty_by_po_item() {
+		const map = {};
+		(this.frm.doc.gate_pass_table || []).forEach((it) => {
+			if (it.order_item_name) {
+				map[it.order_item_name] = flt(map[it.order_item_name] || 0) + flt(it.received_qty);
+			}
+		});
+		return map;
+	}
+
+	show_invoice_item_selector(invoice_no, available, allocated) {
+		const self = this;
+		const already = (this.frm.doc.gate_pass_table || [])
+			.filter((it) => (it.supplier_delivery_note || "") === invoice_no)
+			.map((it) => it.order_item_name);
+		const selectable = available.filter((it) => !already.includes(it.order_item_name));
+
+		const dialog = new frappe.ui.Dialog({
+			title: __("Add Items to Invoice {0}", [invoice_no]),
+			fields: [{ fieldtype: "HTML", fieldname: "items_html" }],
+			primary_action_label: __("Add Selected"),
+			primary_action() {
+				dialog.$wrapper.find('input[type="checkbox"]:checked').each(function () {
+					const po_item_name = $(this).val();
+					const item = selectable.find((i) => i.order_item_name === po_item_name);
+					if (item) self.append_invoice_item(invoice_no, item);
+				});
+				dialog.hide();
+				self.frm.refresh_field("gate_pass_table");
+				self.frm.dirty();
+				self.render();
+			},
+		});
+
+		dialog.fields_dict.items_html.$wrapper.html(
+			`<div class="item-selector-list">${selectable
+				.map((item) => {
+					const remaining = flt(item.pending_qty) - flt(allocated[item.order_item_name] || 0);
+					return `<div class="checkbox"><label>
+						<input type="checkbox" value="${item.order_item_name}">
+						<strong>${frappe.utils.escape_html(item.item_code)}</strong> - ${frappe.utils.escape_html(item.item_name || "")}
+						<span class="text-muted">(${__("Pending")}: ${remaining} ${frappe.utils.escape_html(item.uom || "")})</span>
+					</label></div>`;
+				})
+				.join("")}</div>`
+		);
+		dialog.show();
+	}
+
+	append_invoice_item(invoice_no, item) {
+		const row = this.frm.add_child("gate_pass_table");
+		Object.assign(row, {
+			item_code: item.item_code,
+			item_name: item.item_name,
+			description: item.description || "",
+			uom: item.uom || "",
+			stock_uom: item.stock_uom || "",
+			conversion_factor: item.conversion_factor || 1.0,
+			ordered_qty: item.ordered_qty || 0,
+			received_qty: 0,
+			rate: item.rate || 0,
+			warehouse: item.warehouse || "",
+			expense_account: item.expense_account || "",
+			cost_center: item.cost_center || "",
+			project: item.project || "",
+			order_item_name: item.order_item_name || "",
+			supplier_delivery_note: invoice_no,
+		});
+	}
+
+	set_invoice_item_qty(row_name, value) {
+		const row = (this.frm.doc.gate_pass_table || []).find((it) => it.name === row_name);
+		if (!row) return;
+		if (value <= 0) {
+			frappe.msgprint(__("Quantity must be greater than zero."));
+			return;
+		}
+		const allocatedOther = (this.frm.doc.gate_pass_table || [])
+			.filter((it) => it.order_item_name === row.order_item_name && it.name !== row_name)
+			.reduce((sum, it) => sum + flt(it.received_qty), 0);
+		const ordered = flt(row.ordered_qty);
+		if (ordered > 0 && allocatedOther + value > ordered) {
+			frappe.msgprint({
+				title: __("Over Receipt"),
+				message: __("Total received for {0} ({1}) exceeds ordered ({2}).", [
+					row.item_code,
+					allocatedOther + value,
+					ordered,
+				]),
+				indicator: "orange",
+			});
+		}
+		row.received_qty = value;
+		row.amount = value * flt(row.rate);
+		this.frm.dirty();
+	}
+
+	remove_invoice_item(row_name) {
+		this.frm.doc.gate_pass_table = (this.frm.doc.gate_pass_table || []).filter(
+			(it) => it.name !== row_name
+		);
+		this.frm.refresh_field("gate_pass_table");
+		this.frm.dirty();
+		this.render();
 	}
 
 	render_outbound_items() {
