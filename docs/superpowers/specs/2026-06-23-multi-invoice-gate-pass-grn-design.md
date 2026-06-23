@@ -68,9 +68,9 @@ One row per supplier invoice on this gate entry.
 - The **same PO item may appear under two invoices** with different quantities → multiple rows, distinct by invoice tag.
 - Existing fields (`order_item_name` → PO Item, `received_qty`, `warehouse`, `rate`, …) keep their meaning, now scoped per invoice line.
 
-### 4.3 Retired fields (migrated, then removed)
-- Header `supplier_delivery_note` (Data) — superseded by `Gate Pass Invoice.supplier_delivery_note`.
-- Header `purchase_receipt` (Link) — superseded by `Gate Pass Invoice.purchase_receipt`.
+### 4.3 Retired / re-scoped header fields
+- Header `purchase_receipt` (Link, PO-only) — **removed**; superseded by `Gate Pass Invoice.purchase_receipt`. Data migrated, then the orphan column is dropped.
+- Header `supplier_delivery_note` (Data) — **kept, but re-scoped to the non-PO inbound flows.** The Subcontracting flow still writes it onto the Subcontracting Receipt ([gate_pass.py:1717](../../../gate_entry/gate_entry/doctype/gate_pass/gate_pass.py)), so removing it would break out-of-scope behavior. Its visibility changes to `depends_on: eval:doc.document_reference != 'Purchase Order'`. For the PO flow the invoice number lives only on `Gate Pass Invoice`; the migration copies any PO gate pass's header value into its invoice row and clears the header value on PO docs.
 
 ### 4.4 Grouping key
 `supplier_delivery_note` (the invoice number) is the join key between an invoice row and its tagged item rows. Uniqueness of the invoice number within the gate pass is enforced so the mapping is unambiguous.
@@ -135,18 +135,15 @@ The current PO-flow requirement to enter `received_qty` directly on a flat `gate
 ## 9. Migration
 
 Patch for existing gate passes that used the single fields:
-- For each Gate Pass with a non-empty header `purchase_receipt` (or `supplier_delivery_note`): create **one** `Gate Pass Invoice` row from the old `supplier_delivery_note` + `purchase_receipt` (+ derived `grn_status`).
-- Tag all existing `Gate Pass Table` rows with that invoice's `supplier_delivery_note`.
-- Then drop the retired header fields (custom-field/doctype JSON update + patch).
+- For each **Purchase Order** Gate Pass with a non-empty header `purchase_receipt` (or `supplier_delivery_note`): create **one** `Gate Pass Invoice` row from the old `supplier_delivery_note` + `purchase_receipt` (+ derived `grn_status`).
+- Tag all existing `Gate Pass Table` rows with that invoice's `supplier_delivery_note`, and clear the header `supplier_delivery_note` on the PO doc.
+- Drop only the orphan `purchase_receipt` column. The `supplier_delivery_note` column stays — it remains live for the Subcontracting flow.
 
 ---
 
 ## 10. Reports
 
-Audit and update for the new child-table structure (they currently read the retired header fields):
-- `gate_register`
-- `material_reconciliation`
-- `pending_gate_passes`
+Only **`pending_gate_passes`** references the retired `gp.purchase_receipt` (in its "awaiting receipts" filter) and must be updated to use a NOT-EXISTS against `Gate Pass Invoice`. `material_reconciliation` reads Purchase Receipt data directly (no change). `gate_register` does not reference the retired fields (no change). Plus a one-line `hooks.py` `document_links` fix so the Purchase Receipt → Gate Pass connection uses the PR's own `gate_pass` field.
 
 ---
 
