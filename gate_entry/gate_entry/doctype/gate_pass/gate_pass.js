@@ -219,22 +219,10 @@ frappe.ui.form.on("Gate Pass", {
  */
 function setup_receipt_buttons(frm) {
 	// Check if receipt already created
-	const purchase_receipt_created = frm.doc.purchase_receipt;
 	const subcontracting_receipt_created = frm.doc.subcontracting_receipt;
 
 	// Show appropriate button based on document reference type
-	if (frm.doc.document_reference === "Purchase Order") {
-		if (!purchase_receipt_created) {
-			frm.add_custom_button(__("Create Purchase Receipt"), function () {
-				create_purchase_receipt(frm);
-			}).addClass("btn-primary");
-		} else {
-			// Show link to created receipt
-			frm.add_custom_button(__("View Purchase Receipt"), function () {
-				frappe.set_route("Form", "Purchase Receipt", frm.doc.purchase_receipt);
-			});
-		}
-	} else if (frm.doc.document_reference === "Subcontracting Order") {
+	if (frm.doc.document_reference === "Subcontracting Order") {
 		if (!subcontracting_receipt_created) {
 			frm.add_custom_button(__("Create Subcontracting Receipt"), function () {
 				create_subcontracting_receipt(frm);
@@ -246,32 +234,6 @@ function setup_receipt_buttons(frm) {
 			});
 		}
 	}
-}
-
-/**
- * Create Purchase Receipt from Gate Pass
- */
-function create_purchase_receipt(frm) {
-	frappe.confirm(__("Create Purchase Receipt from this Gate Pass?"), function () {
-		frappe.call({
-			method: "gate_entry.gate_entry.doctype.gate_pass.gate_pass.create_purchase_receipt",
-			args: {
-				gate_pass_name: frm.doc.name,
-			},
-			freeze: true,
-			freeze_message: __("Creating Purchase Receipt..."),
-			callback: function (r) {
-				if (r.message) {
-					frappe.show_alert({
-						message: __("Purchase Receipt {0} created successfully", [r.message]),
-						indicator: "green",
-					});
-					// Redirect to the new Purchase Receipt
-					frappe.set_route("Form", "Purchase Receipt", r.message);
-				}
-			},
-		});
-	});
 }
 
 /**
