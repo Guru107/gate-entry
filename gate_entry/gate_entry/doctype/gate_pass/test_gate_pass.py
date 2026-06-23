@@ -691,8 +691,6 @@ def _make_test_purchase_order(qty=10):
 
 
 def _build_submitted_gate_pass(po, invoices):
-	import frappe
-
 	gp = frappe.new_doc("Gate Pass")
 	gp.document_reference = "Purchase Order"
 	gp.reference_number = po.name
@@ -796,7 +794,7 @@ class TestCancelBehavior(FrappeTestCase):
 		po = _make_test_purchase_order(qty=5)
 		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-A", 5)])
 		pr_name = gp.gate_pass_invoices[0].purchase_receipt
-		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
 		pr = frappe.get_doc("Purchase Receipt", pr_name)
 		# Allow negative stock so PR can be submitted in test environments without valuation setup
 		try:
@@ -818,7 +816,7 @@ class TestCancelBehavior(FrappeTestCase):
 		po = _make_test_purchase_order(qty=10)
 		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-DRAFT", 10)])
 		pr_name = gp.gate_pass_invoices[0].purchase_receipt
-		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
 		# Confirm it's a draft
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 0)
 
@@ -841,7 +839,7 @@ class TestGRNStatusSubmitted(FrappeTestCase):
 		po = _make_test_purchase_order(qty=5)
 		gp = _submitted_po_gate_pass(po, [("INV-SUBMIT-TEST", 5)])
 		pr_name = gp.gate_pass_invoices[0].purchase_receipt
-		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
 		self.assertEqual(gp.gate_pass_invoices[0].grn_status, "Draft")
 
 		pr = frappe.get_doc("Purchase Receipt", pr_name)
