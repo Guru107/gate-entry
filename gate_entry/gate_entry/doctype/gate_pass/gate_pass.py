@@ -2077,6 +2077,21 @@ def create_stock_entry_from_inbound_gate_pass(gate_pass_name):
 # These handlers clean up the Gate Pass references when receipts/entries are deleted/cancelled.
 
 
+def on_purchase_receipt_submit(doc, method):
+	"""
+	Advance grn_status to 'Submitted' when a linked Purchase Receipt is submitted.
+	"""
+	if not doc.get("gate_pass"):
+		return
+	rows = frappe.get_all(
+		"Gate Pass Invoice",
+		filters={"parent": doc.gate_pass, "purchase_receipt": doc.name},
+		fields=["name"],
+	)
+	for row in rows:
+		frappe.db.set_value("Gate Pass Invoice", row.name, "grn_status", "Submitted", update_modified=False)
+
+
 def on_purchase_receipt_trash(doc, method):
 	"""
 	Clear invoice-row link when Purchase Receipt is deleted

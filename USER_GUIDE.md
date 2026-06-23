@@ -122,8 +122,9 @@ Create a Gate In pass when:
 
 10. **After Submission**
     - The gate pass status changes to "Submitted"
-    - A "Create Purchase Receipt" button will appear at the top
-    - This button is for the store manager to use - you don't need to click it
+    - The system automatically creates a draft Purchase Receipt in the background
+    - You will receive a desk notification once the Purchase Receipt has been created
+    - You do not need to take any further action — the store manager will process the draft Purchase Receipt
 
 ### Step-by-Step: Creating a Gate In Pass for Purchase Order — Multiple Invoices
 

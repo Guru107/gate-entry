@@ -15,6 +15,28 @@ frappe.ui.form.on("Gate Pass", {
 		}
 	},
 
+	onload(frm) {
+		frm.set_query("document_reference", function () {
+			return {
+				filters: {
+					name: ["in", DOCUMENT_REFERENCES],
+				},
+			};
+		});
+
+		// Register realtime listener once per form instance so the guard
+		// receives a desk alert when the background GRN job finishes.
+		if (!frm._grn_listener_registered) {
+			frm._grn_listener_registered = true;
+			frappe.realtime.on("gate_pass_grn_generated", (data) => {
+				frappe.show_alert({ message: data.message, indicator: "green" });
+				if (data.gate_pass && data.gate_pass === frm.doc.name) {
+					frm.reload_doc();
+				}
+			});
+		}
+	},
+
 	async refresh(frm) {
 		// Initialize the custom UI component if not already done
 		if (!frm.gate_pass_ui && window.GatePassCustomUI) {
@@ -90,15 +112,6 @@ frappe.ui.form.on("Gate Pass", {
 		});
 
 		refresh_compliance_status(frm);
-	},
-	onload(frm) {
-		frm.set_query("document_reference", function () {
-			return {
-				filters: {
-					name: ["in", DOCUMENT_REFERENCES],
-				},
-			};
-		});
 	},
 
 	after_save(frm) {

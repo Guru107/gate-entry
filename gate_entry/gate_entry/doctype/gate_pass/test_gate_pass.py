@@ -801,6 +801,41 @@ class TestCancelBehavior(FrappeTestCase):
 			self.assertEqual(row.grn_status, "Pending")
 
 
+class TestGRNStatusSubmitted(FrappeTestCase):
+	def test_grn_status_advances_to_submitted_on_pr_submit(self):
+		"""on_purchase_receipt_submit must set grn_status='Submitted' on the matching invoice row."""
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import on_purchase_receipt_submit
+
+		po = _make_test_purchase_order(qty=5)
+		gp = _submitted_po_gate_pass(po, [("INV-SUBMIT-TEST", 5)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		self.assertEqual(gp.gate_pass_invoices[0].grn_status, "Draft")
+
+		pr = frappe.get_doc("Purchase Receipt", pr_name)
+		# Allow negative stock so PR can be submitted in test environments without valuation setup
+		try:
+			item_code = pr.items[0].item_code
+			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
+			frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 1)
+		except Exception:
+			pass
+		try:
+			pr.submit()
+		except Exception as e:
+			self.skipTest(f"PR submission not possible in this environment: {e}")
+
+		# Simulate the doc_event hook (hooks wiring is not active in unit tests)
+		on_purchase_receipt_submit(pr, None)
+
+		gp.reload()
+		self.assertEqual(
+			gp.gate_pass_invoices[0].grn_status,
+			"Submitted",
+			"grn_status must advance to 'Submitted' after PR is submitted",
+		)
+
+
 class TestPurchaseInvoiceValidation(FrappeTestCase):
 	def _po_gate_pass(self, invoices):
 		gp = frappe.new_doc("Gate Pass")

@@ -146,6 +146,7 @@ after_uninstall = "gate_entry.setup.uninstall.after_uninstall"
 # These handlers clean up Gate Pass references when receipts are deleted/cancelled
 doc_events = {
 	"Purchase Receipt": {
+		"on_submit": "gate_entry.gate_entry.doctype.gate_pass.gate_pass.on_purchase_receipt_submit",
 		"on_trash": "gate_entry.gate_entry.doctype.gate_pass.gate_pass.on_purchase_receipt_trash",
 		"on_cancel": "gate_entry.gate_entry.doctype.gate_pass.gate_pass.on_purchase_receipt_cancel",
 	},
