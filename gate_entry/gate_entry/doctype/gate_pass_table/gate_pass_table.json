@@ -36,7 +36,8 @@
   "bom",
   "include_exploded_items",
   "col_break_other",
-  "order_item_name"
+  "order_item_name",
+  "supplier_delivery_note"
  ],
  "fields": [
   {
@@ -229,6 +230,12 @@
    "fieldname": "order_item_name",
    "fieldtype": "Data",
    "label": "Order Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supplier_delivery_note",
+   "fieldtype": "Data",
+   "label": "Supplier Invoice No",
    "read_only": 1
   }
  ],
