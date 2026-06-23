@@ -732,6 +732,75 @@ class TestAutoGRN(FrappeTestCase):
 		self.assertEqual(pr_count, 2, f"Expected 2 PRs for this gate pass, found {pr_count}")
 
 
+def _submitted_po_gate_pass(po, invoices):
+	"""Build and submit a Gate Pass for a PO, run generate_purchase_receipts, return reloaded doc."""
+	from gate_entry.gate_entry.doctype.gate_pass.gate_pass import generate_purchase_receipts
+
+	gp = frappe.new_doc("Gate Pass")
+	gp.document_reference = "Purchase Order"
+	gp.reference_number = po.name
+	gp.company = po.company
+	gp.supplier = po.supplier
+	gp.vehicle_number = "KA01AB1234"
+	gp.driver_name = "Test Driver"
+	for inv, qty in invoices:
+		gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
+		gp.append("gate_pass_table", {
+			"item_code": po.items[0].item_code,
+			"received_qty": qty,
+			"order_item_name": po.items[0].name,
+			"warehouse": po.items[0].warehouse,
+			"supplier_delivery_note": inv,
+		})
+	gp.submit()
+	generate_purchase_receipts(gp.name)
+	gp.reload()
+	return gp
+
+
+class TestCancelBehavior(FrappeTestCase):
+	def test_cancel_blocked_when_pr_submitted(self):
+		"""Cancel must be blocked when an invoice-linked Purchase Receipt is in Submitted state."""
+		po = _make_test_purchase_order(qty=5)
+		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-A", 5)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		pr = frappe.get_doc("Purchase Receipt", pr_name)
+		# Allow negative stock so PR can be submitted in test environments without valuation setup
+		try:
+			item_code = pr.items[0].item_code
+			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
+			frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 1)
+		except Exception:
+			pass
+		try:
+			pr.submit()
+		except Exception as e:
+			self.skipTest(f"PR submission not possible in this environment: {e}")
+		gp.reload()
+		with self.assertRaises(frappe.ValidationError):
+			gp.cancel()
+
+	def test_cancel_deletes_draft_prs_and_clears_links(self):
+		"""Cancelling a gate pass with DRAFT PRs must delete those PRs and clear invoice row links."""
+		po = _make_test_purchase_order(qty=10)
+		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-DRAFT", 10)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "generate_purchase_receipts must have created a PR")
+		# Confirm it's a draft
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 0)
+
+		gp.cancel()
+		gp.reload()
+
+		# PR must be deleted
+		self.assertFalse(frappe.db.exists("Purchase Receipt", pr_name), "Draft PR must be deleted on cancel")
+		# Invoice row link must be cleared
+		for row in gp.gate_pass_invoices:
+			self.assertIsNone(row.purchase_receipt, "Invoice row purchase_receipt must be None after cancel")
+			self.assertEqual(row.grn_status, "Pending")
+
+
 class TestPurchaseInvoiceValidation(FrappeTestCase):
 	def _po_gate_pass(self, invoices):
 		gp = frappe.new_doc("Gate Pass")

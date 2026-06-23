@@ -917,18 +917,13 @@ class GatePass(Document):
 
 		linked_receipts = []
 
-		# Check for Purchase Receipt
-		if original_doc.purchase_receipt:
-			receipt_status = frappe.db.get_value(
-				"Purchase Receipt", original_doc.purchase_receipt, "docstatus"
-			)
-			if receipt_status == 1:  # Submitted
+		# Purchase Receipts from invoice rows
+		for inv in original_doc.get("gate_pass_invoices") or []:
+			if not inv.purchase_receipt:
+				continue
+			if frappe.db.get_value("Purchase Receipt", inv.purchase_receipt, "docstatus") == 1:
 				linked_receipts.append(
-					{
-						"doctype": "Purchase Receipt",
-						"name": original_doc.purchase_receipt,
-						"status": "Submitted",
-					}
+					{"doctype": "Purchase Receipt", "name": inv.purchase_receipt, "status": "Submitted"}
 				)
 
 		# Check for Subcontracting Receipt
@@ -954,17 +949,20 @@ class GatePass(Document):
 		"""
 		linked_receipts = []
 
-		# Check for Purchase Receipt
-		if self.purchase_receipt:
-			receipt_status = frappe.db.get_value("Purchase Receipt", self.purchase_receipt, "docstatus")
-			if receipt_status == 1:  # Submitted
+		# Purchase Receipts from invoice rows
+		for inv in self.get("gate_pass_invoices") or []:
+			if not inv.purchase_receipt:
+				continue
+			docstatus = frappe.db.get_value("Purchase Receipt", inv.purchase_receipt, "docstatus")
+			if docstatus == 1:
 				linked_receipts.append(
-					{"doctype": "Purchase Receipt", "name": self.purchase_receipt, "status": "Submitted"}
+					{"doctype": "Purchase Receipt", "name": inv.purchase_receipt, "status": "Submitted"}
 				)
-			elif receipt_status == 0:  # Draft
-				linked_receipts.append(
-					{"doctype": "Purchase Receipt", "name": self.purchase_receipt, "status": "Draft"}
-				)
+			elif docstatus == 0:
+				# Draft PRs are deleted so cancellation leaves no orphans
+				frappe.delete_doc("Purchase Receipt", inv.purchase_receipt, force=1, ignore_permissions=True)
+				inv.db_set("purchase_receipt", None, update_modified=False)
+				inv.db_set("grn_status", "Pending", update_modified=False)
 
 		# Check for Subcontracting Receipt
 		if self.subcontracting_receipt:
@@ -2081,18 +2079,30 @@ def create_stock_entry_from_inbound_gate_pass(gate_pass_name):
 
 def on_purchase_receipt_trash(doc, method):
 	"""
-	Clear Gate Pass reference when Purchase Receipt is deleted
+	Clear invoice-row link when Purchase Receipt is deleted
 	"""
-	if doc.get("gate_pass"):
-		clear_gate_pass_reference(doc.get("gate_pass"), "purchase_receipt")
+	_clear_invoice_row_for_pr(doc)
 
 
 def on_purchase_receipt_cancel(doc, method):
 	"""
-	Clear Gate Pass reference when Purchase Receipt is cancelled
+	Clear invoice-row link when Purchase Receipt is cancelled
 	"""
-	if doc.get("gate_pass"):
-		clear_gate_pass_reference(doc.get("gate_pass"), "purchase_receipt")
+	_clear_invoice_row_for_pr(doc)
+
+
+def _clear_invoice_row_for_pr(pr_doc):
+	"""Clear purchase_receipt and grn_status on the matching Gate Pass Invoice row."""
+	if not pr_doc.get("gate_pass"):
+		return
+	rows = frappe.get_all(
+		"Gate Pass Invoice",
+		filters={"parent": pr_doc.gate_pass, "purchase_receipt": pr_doc.name},
+		fields=["name"],
+	)
+	for row in rows:
+		frappe.db.set_value("Gate Pass Invoice", row.name, "purchase_receipt", None, update_modified=False)
+		frappe.db.set_value("Gate Pass Invoice", row.name, "grn_status", "Pending", update_modified=False)
 
 
 def on_subcontracting_receipt_trash(doc, method):
