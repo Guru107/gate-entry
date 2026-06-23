@@ -416,6 +416,7 @@ class GatePass(Document):
 			self.validate_stock_entry_allocations(allocation_doc, context)
 
 		self.validate_discrepancy_quantities()
+		self.validate_purchase_invoices()
 
 	def fetch_reference_items(self):
 		if self.document_reference == "Sales Invoice":
@@ -563,6 +564,51 @@ class GatePass(Document):
 
 		if total_qty and (lost_qty + damaged_qty) > total_qty:
 			frappe.throw(_("Total lost/damaged quantity cannot exceed movement quantity."))
+
+	def validate_purchase_invoices(self):
+		"""Validate invoice-grouped items for the Purchase Order flow."""
+		if self.document_reference != "Purchase Order":
+			return
+
+		invoices = self.get("gate_pass_invoices") or []
+		if not invoices:
+			frappe.throw(_("Add at least one supplier invoice before submitting."))
+
+		# Unique invoice numbers
+		seen = set()
+		for inv in invoices:
+			key = (inv.supplier_delivery_note or "").strip()
+			if not key:
+				frappe.throw(_("Supplier Invoice No is required on every invoice row."))
+			if key in seen:
+				frappe.throw(_("Duplicate supplier invoice number: {0}").format(key))
+			seen.add(key)
+
+		# Items grouped by invoice; qty > 0; invoice tag must exist
+		items_by_invoice = {}
+		for item in self.get("gate_pass_table") or []:
+			tag = (item.supplier_delivery_note or "").strip()
+			if not tag:
+				frappe.throw(
+					_("Item {0} is not assigned to any invoice.").format(item.item_code)
+				)
+			if tag not in seen:
+				frappe.throw(
+					_("Item {0} references unknown invoice {1}.").format(item.item_code, tag)
+				)
+			if flt(item.received_qty) <= 0:
+				frappe.throw(
+					_("Quantity for item {0} on invoice {1} must be greater than zero.").format(
+						item.item_code, tag
+					)
+				)
+			items_by_invoice.setdefault(tag, []).append(item)
+
+		# Every invoice must have at least one item
+		for inv in invoices:
+			key = (inv.supplier_delivery_note or "").strip()
+			if not items_by_invoice.get(key):
+				frappe.throw(_("Invoice {0} has no items.").format(key))
 
 	def validate_stock_entry_allocations(self, stock_entry, context=None):
 		if not stock_entry:

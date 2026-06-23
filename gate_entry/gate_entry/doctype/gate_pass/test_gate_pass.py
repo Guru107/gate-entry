@@ -531,3 +531,37 @@ class TestGatePass(FrappeTestCase):
 			fields_cleared = {call[0][2] for call in calls_with_none}
 			self.assertIn("outbound_material_transfer", fields_cleared)
 			self.assertIn("reference_number", fields_cleared)
+
+
+class TestPurchaseInvoiceValidation(FrappeTestCase):
+	def _po_gate_pass(self, invoices):
+		gp = frappe.new_doc("Gate Pass")
+		gp.document_reference = "Purchase Order"
+		gp.reference_number = "PO-DUMMY"
+		for inv in invoices:
+			gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
+		return gp
+
+	def test_duplicate_invoice_number_rejected(self):
+		gp = self._po_gate_pass(["INV-1", "INV-1"])
+		gp.append("gate_pass_table", {"item_code": "X", "received_qty": 5,
+			"order_item_name": "POI-1", "supplier_delivery_note": "INV-1"})
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_invoice_without_items_rejected(self):
+		gp = self._po_gate_pass(["INV-1"])
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_zero_qty_rejected(self):
+		gp = self._po_gate_pass(["INV-1"])
+		gp.append("gate_pass_table", {"item_code": "X", "received_qty": 0,
+			"order_item_name": "POI-1", "supplier_delivery_note": "INV-1"})
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_no_invoices_rejected(self):
+		gp = self._po_gate_pass([])
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
