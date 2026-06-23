@@ -18,7 +18,9 @@ def execute():
 	if has_pr or has_sdn:
 		pr_col = "purchase_receipt" if has_pr else "NULL"
 		sdn_col = "supplier_delivery_note" if has_sdn else "NULL"
-		rows = frappe.db.sql(
+		# pr_col / sdn_col are code-controlled column-name literals (or "NULL"),
+		# never user input — safe to interpolate.
+		rows = frappe.db.sql(  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 			f"""
 			SELECT name, {pr_col} AS purchase_receipt, {sdn_col} AS supplier_delivery_note
 			FROM `tabGate Pass`

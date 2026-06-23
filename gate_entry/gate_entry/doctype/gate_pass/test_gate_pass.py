@@ -591,7 +591,6 @@ def _ensure_test_fixtures_for_po():
 			pw.flags.ignore_permissions = True
 			pw.flags.ignore_validate = True
 			pw.insert(ignore_if_duplicate=True)
-			frappe.db.commit()
 			parent_wh = pw.name or f"All Warehouses - {company_abbr}"
 		wh = frappe.get_doc(
 			{
@@ -605,7 +604,6 @@ def _ensure_test_fixtures_for_po():
 		wh.flags.ignore_permissions = True
 		wh.flags.ignore_validate = True
 		wh.insert(ignore_if_duplicate=True)
-		frappe.db.commit()
 
 	# Ensure supplier exists
 	if not frappe.db.exists("Supplier", supplier_name):
@@ -621,7 +619,6 @@ def _ensure_test_fixtures_for_po():
 		supplier.flags.ignore_validate = True
 		supplier.flags.ignore_links = True
 		supplier.insert(ignore_if_duplicate=True)
-		frappe.db.commit()
 
 	# Ensure item exists.  Include HSN code for india_compliance compatibility.
 	if not frappe.db.exists("Item", item_code):
@@ -646,7 +643,6 @@ def _ensure_test_fixtures_for_po():
 		item.flags.ignore_validate = True
 		item.flags.ignore_links = True
 		item.insert(ignore_if_duplicate=True)
-		frappe.db.commit()
 
 	# Ensure the company has an active fiscal year so PO can be submitted
 	_ensure_fiscal_year_for_company(company)
@@ -681,7 +677,6 @@ def _ensure_fiscal_year_for_company(company):
 		fy_doc.append("companies", {"company": company})
 		fy_doc.flags.ignore_permissions = True
 		fy_doc.save()
-		frappe.db.commit()
 
 
 def _make_test_purchase_order(qty=10):
@@ -827,7 +822,7 @@ class TestCancelBehavior(FrappeTestCase):
 		try:
 			item_code = pr.items[0].item_code
 			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
-			frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 1)
+			frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
 		except Exception:
 			pass
 		try:
@@ -874,7 +869,7 @@ class TestGRNStatusSubmitted(FrappeTestCase):
 		try:
 			item_code = pr.items[0].item_code
 			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
-			frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 1)
+			frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
 		except Exception:
 			pass
 		try:

@@ -1546,7 +1546,7 @@ def get_outbound_compliance_status(document_reference, reference_number, gate_pa
 
 
 @frappe.whitelist()
-def create_purchase_receipts(gate_pass_name):
+def create_purchase_receipts(gate_pass_name: str):
 	"""Create one draft Purchase Receipt per invoice row that has none yet.
 
 	All-or-nothing: builds inside a DB savepoint and rolls the whole batch
