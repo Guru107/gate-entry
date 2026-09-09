@@ -100,9 +100,20 @@ The app adds the following custom fields to Stock Entry (all removed on uninstal
 
 For detailed installation and uninstallation instructions, see [INSTALLATION.md](INSTALLATION.md).
 
+### Purchase Order Flow: Multiple Invoices per Gate Pass
+
+A single supplier vehicle often arrives carrying material split across several supplier invoices (delivery challans) — all against one Purchase Order. The Gate Entry module supports this with one Gate Entry per vehicle:
+
+- **One Gate Pass per vehicle** — the gate pass is still tied to a single Purchase Order and a single supplier.
+- **Multiple supplier invoices** — the guard adds each invoice the driver presents as a separate invoice section, then records the items and quantities for that invoice within it.
+- **Stores-triggered Purchase Receipt creation** — after the guard submits the Gate Pass, a stores or downstream user opens the submitted Gate Pass and clicks **"Create Purchase Receipt"**. This creates one draft Purchase Receipt per invoice in a single, all-or-nothing action. If any invoice fails, no receipts are created and a clear error is shown; there is no partial batch.
+- **Guard never touches Purchase Receipts** — the guard's job ends at submission. The draft Purchase Receipts are visible to stores / accounts for review and final submission.
+
+The Gate Pass form displays a traceability table of every `[Invoice No → Purchase Receipt → status]` produced from that vehicle entry.
+
 ### Releases
 
-This module follows [Semantic Versioning](https://semver.org/) and is compatible with ERPNext v15.x.
+This module follows [Semantic Versioning](https://semver.org/) and is compatible with ERPNext v15.x and v16.x.
 
 **Current Version:** 1.0.0
 

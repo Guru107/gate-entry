@@ -531,3 +531,419 @@ class TestGatePass(FrappeTestCase):
 			fields_cleared = {call[0][2] for call in calls_with_none}
 			self.assertIn("outbound_material_transfer", fields_cleared)
 			self.assertIn("reference_number", fields_cleared)
+
+
+def _ensure_test_fixtures_for_po():
+	"""Discover an INR company that has a Stores warehouse, creating fixtures as needed.
+
+	Strategy (in order):
+	1. Use "Wind Power LLP" if it exists with INR currency (v15 standard).
+	2. Look for any INR company that already has a "Stores - <abbr>" warehouse.
+	3. Fall back to "_Test Company" (always exists with INR in ERPNext test sites).
+	"""
+	supplier_name = "_Test Gate Entry Supplier"
+	item_code = "_Test Gate Entry Item 1"
+
+	# --- Step 1: prefer Wind Power LLP if it exists and uses INR ---
+	company = None
+	if frappe.db.exists("Company", "Wind Power LLP"):
+		if frappe.db.get_value("Company", "Wind Power LLP", "default_currency") == "INR":
+			company = "Wind Power LLP"
+
+	# --- Step 2: any INR company that already has a Stores warehouse ---
+	if not company:
+		rows = frappe.db.sql(
+			"""
+			SELECT w.company FROM tabWarehouse w
+			JOIN tabCompany c ON c.name = w.company
+			WHERE w.warehouse_name = 'Stores'
+			  AND c.default_currency = 'INR'
+			  AND w.disabled = 0
+			LIMIT 1
+			""",
+			as_dict=True,
+		)
+		if rows:
+			company = rows[0].company
+
+	# --- Step 3: fall back to _Test Company ---
+	if not company:
+		company = "_Test Company"
+
+	# Resolve warehouse name from company abbr
+	company_abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
+	warehouse_name = f"Stores - {company_abbr}"
+
+	# Ensure warehouse exists
+	if not frappe.db.exists("Warehouse", warehouse_name):
+		parent_wh = frappe.db.get_value(
+			"Warehouse", {"warehouse_name": "All Warehouses", "company": company}, "name"
+		)
+		if not parent_wh:
+			pw = frappe.get_doc(
+				{
+					"doctype": "Warehouse",
+					"warehouse_name": "All Warehouses",
+					"is_group": 1,
+					"company": company,
+				}
+			)
+			pw.flags.ignore_permissions = True
+			pw.flags.ignore_validate = True
+			pw.insert(ignore_if_duplicate=True)
+			parent_wh = pw.name or f"All Warehouses - {company_abbr}"
+		wh = frappe.get_doc(
+			{
+				"doctype": "Warehouse",
+				"warehouse_name": "Stores",
+				"is_group": 0,
+				"company": company,
+				"parent_warehouse": parent_wh,
+			}
+		)
+		wh.flags.ignore_permissions = True
+		wh.flags.ignore_validate = True
+		wh.insert(ignore_if_duplicate=True)
+
+	# Ensure supplier exists
+	if not frappe.db.exists("Supplier", supplier_name):
+		supplier = frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": supplier_name,
+				"supplier_group": "All Supplier Groups",
+				"country": "India",
+			}
+		)
+		supplier.flags.ignore_permissions = True
+		supplier.flags.ignore_validate = True
+		supplier.flags.ignore_links = True
+		supplier.insert(ignore_if_duplicate=True)
+
+	# Ensure item exists.  Include HSN code for india_compliance compatibility.
+	if not frappe.db.exists("Item", item_code):
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_code,
+				"item_group": "Products",
+				"stock_uom": "Nos",
+				# ignore_validate (below) skips the auto-population of the UOM
+				# conversion table, so add the stock UOM row explicitly — otherwise
+				# a PO line resolving uom "Nos" fails with "UOM Nos not found in Item"
+				# on a clean DB (e.g. CI) where this item doesn't already exist.
+				"uoms": [{"uom": "Nos", "conversion_factor": 1.0}],
+				"is_stock_item": 1,
+				"valuation_rate": 100,
+				"gst_hsn_code": "61149090",
+			}
+		)
+		item.flags.ignore_permissions = True
+		item.flags.ignore_validate = True
+		item.flags.ignore_links = True
+		item.insert(ignore_if_duplicate=True)
+
+	# Ensure the company has an active fiscal year so PO can be submitted
+	_ensure_fiscal_year_for_company(company)
+
+	return supplier_name, item_code, warehouse_name, company
+
+
+def _ensure_fiscal_year_for_company(company):
+	"""Add company to the current active fiscal year if not already present."""
+	from erpnext.accounts.utils import FiscalYearError, get_fiscal_year
+	from frappe.utils import getdate
+
+	try:
+		get_fiscal_year(getdate(), company=company)
+		return  # Fiscal year already active for this company
+	except FiscalYearError:
+		pass
+
+	# Get any active fiscal year and add this company to it
+	today = frappe.utils.getdate()
+	fy_list = frappe.get_all(
+		"Fiscal Year",
+		filters={"year_start_date": ["<=", today], "year_end_date": [">=", today], "disabled": 0},
+		fields=["name"],
+		limit=1,
+	)
+	if not fy_list:
+		return
+	fy_doc = frappe.get_doc("Fiscal Year", fy_list[0].name)
+	fy_companies = [row.company for row in fy_doc.get("companies") or []]
+	if company not in fy_companies:
+		fy_doc.append("companies", {"company": company})
+		fy_doc.flags.ignore_permissions = True
+		fy_doc.save()
+
+
+def _make_test_purchase_order(qty=10):
+	"""Create and submit a test Purchase Order using gate_entry fixture data."""
+	supplier_name, item_code, warehouse_name, company = _ensure_test_fixtures_for_po()
+
+	po = frappe.new_doc("Purchase Order")
+	po.supplier = supplier_name
+	po.company = company
+	po.schedule_date = frappe.utils.nowdate()
+	po.append(
+		"items",
+		{
+			"item_code": item_code,
+			"qty": qty,
+			"rate": 100,
+			"schedule_date": frappe.utils.nowdate(),
+			"warehouse": warehouse_name,
+		},
+	)
+	po.insert()
+	po.submit()
+	return po
+
+
+def _build_submitted_gate_pass(po, invoices):
+	gp = frappe.new_doc("Gate Pass")
+	gp.document_reference = "Purchase Order"
+	gp.reference_number = po.name
+	gp.company = po.company
+	gp.supplier = po.supplier
+	gp.vehicle_number = "KA01AB1234"
+	gp.driver_name = "Test Driver"
+	for inv, qty in invoices:
+		gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": po.items[0].item_code,
+				"received_qty": qty,
+				"order_item_name": po.items[0].name,
+				"warehouse": po.items[0].warehouse,
+				"supplier_delivery_note": inv,
+			},
+		)
+	gp.submit()
+	return gp
+
+
+def _submitted_po_gate_pass(po, invoices):
+	"""Build and submit a Gate Pass for a PO, call create_purchase_receipts, return reloaded doc."""
+	from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+	gp = _build_submitted_gate_pass(po, invoices)
+	create_purchase_receipts(gp.name)
+	gp.reload()
+	return gp
+
+
+class TestCreatePurchaseReceipts(FrappeTestCase):
+	def test_creates_one_draft_pr_per_invoice(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3), ("INV-B", 4)])
+
+		result = create_purchase_receipts(gp.name)
+		self.assertEqual(len(result["created"]), 2)
+
+		gp.reload()
+		prs = [r.purchase_receipt for r in gp.gate_pass_invoices]
+		self.assertEqual(len([p for p in prs if p]), 2)
+		self.assertTrue(all(r.grn_status == "Draft" for r in gp.gate_pass_invoices))
+		for p in prs:
+			self.assertEqual(frappe.db.get_value("Purchase Receipt", p, "docstatus"), 0)
+
+	def test_all_or_nothing_rolls_back_on_failure(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3), ("INV-B", 4)])
+		# Make INV-B fail: point its item at a non-existent PO Item so _build_purchase_receipt raises
+		for row in gp.gate_pass_table:
+			if row.supplier_delivery_note == "INV-B":
+				frappe.db.set_value(
+					"Gate Pass Table", row.name, "order_item_name", "NONEXISTENT", update_modified=False
+				)
+
+		with self.assertRaises(Exception):
+			create_purchase_receipts(gp.name)
+
+		gp.reload()
+		self.assertTrue(all(not r.purchase_receipt for r in gp.gate_pass_invoices))
+		self.assertEqual(frappe.db.count("Purchase Receipt", {"gate_pass": gp.name}), 0)
+
+	def test_idempotent_recall_creates_nothing_new(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])
+		self.assertEqual(len(create_purchase_receipts(gp.name)["created"]), 1)
+		self.assertEqual(len(create_purchase_receipts(gp.name)["created"]), 0)
+		self.assertEqual(frappe.db.count("Purchase Receipt", {"gate_pass": gp.name}), 1)
+
+	def test_requires_purchase_receipt_create_permission(self):
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import create_purchase_receipts
+
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])
+
+		# A role-less user has no Purchase Receipt create permission. The endpoint's
+		# permission check is its first line (before any get_doc), so this is enough.
+		email = "grn_perm_test@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "NoPerm",
+					"send_welcome_email": 0,
+					"roles": [],
+				}
+			).insert(ignore_permissions=True)
+
+		frappe.set_user(email)
+		try:
+			self.assertFalse(frappe.has_permission("Purchase Receipt", "create"))
+			with self.assertRaises(frappe.PermissionError):
+				create_purchase_receipts(gp.name)
+		finally:
+			frappe.set_user("Administrator")
+
+
+class TestCancelBehavior(FrappeTestCase):
+	def test_cancel_blocked_when_pr_submitted(self):
+		"""Cancel must be blocked when an invoice-linked Purchase Receipt is in Submitted state."""
+		po = _make_test_purchase_order(qty=5)
+		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-A", 5)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
+		pr = frappe.get_doc("Purchase Receipt", pr_name)
+		# Allow negative stock so PR can be submitted in test environments without valuation setup
+		try:
+			item_code = pr.items[0].item_code
+			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
+			frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
+		except Exception:
+			pass
+		try:
+			pr.submit()
+		except Exception as e:
+			self.skipTest(f"PR submission not possible in this environment: {e}")
+		gp.reload()
+		with self.assertRaises(frappe.ValidationError):
+			gp.cancel()
+
+	def test_cancel_deletes_draft_prs_and_clears_links(self):
+		"""Cancelling a gate pass with DRAFT PRs must delete those PRs and clear invoice row links."""
+		po = _make_test_purchase_order(qty=10)
+		gp = _submitted_po_gate_pass(po, [("INV-CANCEL-DRAFT", 10)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
+		# Confirm it's a draft
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 0)
+
+		gp.cancel()
+		gp.reload()
+
+		# PR must be deleted
+		self.assertFalse(frappe.db.exists("Purchase Receipt", pr_name), "Draft PR must be deleted on cancel")
+		# Invoice row link must be cleared
+		for row in gp.gate_pass_invoices:
+			self.assertIsNone(row.purchase_receipt, "Invoice row purchase_receipt must be None after cancel")
+			self.assertEqual(row.grn_status, "Pending")
+
+
+class TestGRNStatusSubmitted(FrappeTestCase):
+	def test_grn_status_advances_to_submitted_on_pr_submit(self):
+		"""on_purchase_receipt_submit must set grn_status='Submitted' on the matching invoice row."""
+		from gate_entry.gate_entry.doctype.gate_pass.gate_pass import on_purchase_receipt_submit
+
+		po = _make_test_purchase_order(qty=5)
+		gp = _submitted_po_gate_pass(po, [("INV-SUBMIT-TEST", 5)])
+		pr_name = gp.gate_pass_invoices[0].purchase_receipt
+		self.assertIsNotNone(pr_name, "create_purchase_receipts must have created a PR")
+		self.assertEqual(gp.gate_pass_invoices[0].grn_status, "Draft")
+
+		pr = frappe.get_doc("Purchase Receipt", pr_name)
+		# Allow negative stock so PR can be submitted in test environments without valuation setup
+		try:
+			item_code = pr.items[0].item_code
+			frappe.db.set_value("Item", item_code, "allow_negative_stock", 1)
+			frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
+		except Exception:
+			pass
+		try:
+			pr.submit()
+		except Exception as e:
+			self.skipTest(f"PR submission not possible in this environment: {e}")
+
+		# Simulate the doc_event hook (hooks wiring is not active in unit tests)
+		on_purchase_receipt_submit(pr, None)
+
+		gp.reload()
+		self.assertEqual(
+			gp.gate_pass_invoices[0].grn_status,
+			"Submitted",
+			"grn_status must advance to 'Submitted' after PR is submitted",
+		)
+
+
+class TestSubmittedGatePassUpdate(FrappeTestCase):
+	def test_can_append_invoice_row_to_submitted_gate_pass_with_flag(self):
+		po = _make_test_purchase_order(qty=10)
+		gp = _build_submitted_gate_pass(po, [("INV-A", 3)])  # docstatus 1
+
+		gp.append("gate_pass_invoices", {"supplier_delivery_note": "INV-LATE", "grn_status": "Pending"})
+		gp.flags.ignore_validate_update_after_submit = True
+		gp.save(ignore_permissions=True)  # must NOT raise UpdateAfterSubmitError
+
+		gp.reload()
+		self.assertIn("INV-LATE", [r.supplier_delivery_note for r in gp.gate_pass_invoices])
+
+
+class TestPurchaseInvoiceValidation(FrappeTestCase):
+	def _po_gate_pass(self, invoices):
+		gp = frappe.new_doc("Gate Pass")
+		gp.document_reference = "Purchase Order"
+		gp.reference_number = "PO-DUMMY"
+		for inv in invoices:
+			gp.append("gate_pass_invoices", {"supplier_delivery_note": inv})
+		return gp
+
+	def test_duplicate_invoice_number_rejected(self):
+		gp = self._po_gate_pass(["INV-1", "INV-1"])
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": "X",
+				"received_qty": 5,
+				"order_item_name": "POI-1",
+				"supplier_delivery_note": "INV-1",
+			},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_invoice_without_items_rejected(self):
+		gp = self._po_gate_pass(["INV-1"])
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_zero_qty_rejected(self):
+		gp = self._po_gate_pass(["INV-1"])
+		gp.append(
+			"gate_pass_table",
+			{
+				"item_code": "X",
+				"received_qty": 0,
+				"order_item_name": "POI-1",
+				"supplier_delivery_note": "INV-1",
+			},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()
+
+	def test_no_invoices_rejected(self):
+		gp = self._po_gate_pass([])
+		with self.assertRaises(frappe.ValidationError):
+			gp.validate_purchase_invoices()

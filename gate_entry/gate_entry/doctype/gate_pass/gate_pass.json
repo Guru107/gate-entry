@@ -29,6 +29,8 @@
   "security_guard_name",
   "gate_entry_date",
   "gate_entry_time",
+  "purchase_invoices_section",
+  "gate_pass_invoices",
   "material_details_section",
   "custom_ui",
   "compliance_status_html",
@@ -46,7 +48,6 @@
   "damaged_quantity",
   "discrepancy_notes",
   "receipt_references_section",
-  "purchase_receipt",
   "subcontracting_receipt",
   "stock_entry",
   "amended_from"
@@ -161,7 +162,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:doc.document_reference in ['Purchase Order', 'Subcontracting Order']",
+   "depends_on": "eval:doc.document_reference != 'Purchase Order'",
    "fieldname": "supplier_delivery_note",
    "fieldtype": "Data",
    "label": "Supplier Delivery Note"
@@ -213,6 +214,20 @@
    "fieldtype": "Time",
    "label": "Gate Entry Time",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.document_reference=='Purchase Order'",
+   "fieldname": "purchase_invoices_section",
+   "fieldtype": "Section Break",
+   "label": "Supplier Invoices & GRNs"
+  },
+  {
+   "depends_on": "eval:doc.document_reference=='Purchase Order'",
+   "fieldname": "gate_pass_invoices",
+   "fieldtype": "Table",
+   "label": "Supplier Invoices",
+   "options": "Gate Pass Invoice"
   },
   {
    "fieldname": "material_details_section",
@@ -324,17 +339,6 @@
    "no_copy": 1,
    "options": "Gate Pass",
    "print_hide": 1,
-   "read_only": 1,
-   "search_index": 1
-  },
-  {
-   "allow_on_submit": 1,
-   "depends_on": "eval:doc.document_reference=='Purchase Order'",
-   "fieldname": "purchase_receipt",
-   "fieldtype": "Link",
-   "label": "Purchase Receipt Reference",
-   "no_copy": 1,
-   "options": "Purchase Receipt",
    "read_only": 1,
    "search_index": 1
   },

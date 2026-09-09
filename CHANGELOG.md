@@ -9,11 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-### Changed
+#### Multiple Invoices per Gate Pass (#17)
+- **`Gate Pass Invoice` child table** — one row per supplier invoice on a gate entry (fields: `supplier_delivery_note`, `invoice_date`, `purchase_receipt` (read-only, set on GRN creation), `grn_status`).
+- **Per-invoice item tagging** — `Gate Pass Table` gains a `supplier_delivery_note` column linking each item row to its invoice; the same PO item may appear under multiple invoices with different quantities.
+- **Invoice-grouped custom UI** (Purchase Order flow only) — guard clicks "Add Invoice", enters an invoice number, then "Add Item" within that section. Pending-qty display accounts for quantities already allocated to sibling invoices on the same gate pass. Duplicate invoice numbers within a gate pass are rejected.
+- **"Create Purchase Receipt" bulk action** — on a submitted PO Gate Pass, a stores/downstream user clicks **"Create Purchase Receipt"** to create one draft Purchase Receipt per invoice in a single, all-or-nothing synchronous action. Each PR carries the invoice number (`supplier_delivery_note`), `gate_pass` link, and vehicle/driver details. If any invoice fails, the entire operation is rolled back and a clear error names the failing invoice; no partial batches are created. A timeline comment is added to the Gate Pass on success.
+- **Traceability table** — the submitted Gate Pass displays a `[Invoice No → Purchase Receipt → status]` summary for every GRN produced from that vehicle entry.
+- **ERPNext v15 and v16 compatibility** verified and tested.
 
-### Deprecated
+### Changed
+- **GRN creation is now stores-triggered, not automatic**: Purchase Receipts for PO gate entries are no longer created by a background job on Gate Pass submit. Instead, a stores or downstream user opens the submitted Gate Pass and clicks **"Create Purchase Receipt"**, which creates all per-invoice draft Purchase Receipts at once (all-or-nothing). The guard is not notified and does not interact with Purchase Receipts.
+- **`pending_gate_passes` report** updated to detect awaiting-receipt gate passes via a NOT-EXISTS check against `Gate Pass Invoice` (replacing the retired `gp.purchase_receipt` column reference).
+- **`hooks.py` `document_links`** updated so the Purchase Receipt → Gate Pass backlink uses the PR's own `gate_pass` field.
+- Header `supplier_delivery_note` field visibility on Gate Pass changed to `depends_on: eval:doc.document_reference != 'Purchase Order'` (still used by Subcontracting flow; hidden for PO flow where invoice numbers now live on `Gate Pass Invoice`).
+- Cancel and amend guards updated to be list-aware (check all linked Purchase Receipts from `Gate Pass Invoice`, not a single header field).
 
 ### Removed
+- **Header `purchase_receipt` field** (Link, PO-only) on Gate Pass: superseded by `Gate Pass Invoice.purchase_receipt`. The column is dropped after data migration.
+
+### Migration
+- Patch `gate_entry.patches.migrate_gate_pass_invoices`: for each existing PO-flow Gate Pass with a non-empty `purchase_receipt` or `supplier_delivery_note` header value, one `Gate Pass Invoice` row is created from those values (with derived `grn_status`); all `Gate Pass Table` rows are tagged with that invoice's `supplier_delivery_note`; the header `supplier_delivery_note` is cleared on the PO doc; and the orphan `purchase_receipt` column is dropped.
+
+### Deprecated
 
 ### Fixed
 

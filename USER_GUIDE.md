@@ -122,8 +122,41 @@ Create a Gate In pass when:
 
 10. **After Submission**
     - The gate pass status changes to "Submitted"
-    - A "Create Purchase Receipt" button will appear at the top
-    - This button is for the store manager to use - you don't need to click it
+    - Your job is done. A stores or downstream user will open the submitted Gate Pass and click **"Create Purchase Receipt"** to generate the draft Purchase Receipt(s).
+    - You do not need to take any further action — you will not receive a notification for GRN creation.
+
+### Step-by-Step: Creating a Gate In Pass for Purchase Order — Multiple Invoices
+
+When a supplier vehicle carries material against **more than one supplier invoice** (all on the same Purchase Order), use this flow instead of creating a separate Gate Pass per invoice.
+
+1. **Create a new Gate Pass and select the Purchase Order** (steps 1–4 from the single-invoice flow above — Document Reference, PO, supplier details auto-fill, vehicle and driver).
+
+2. **Add the first invoice**
+   - In the Items section, click **"Add Invoice"**.
+   - Enter the invoice number from the first delivery challan the driver presents.
+   - An invoice section (heading = that invoice number) appears. Duplicate invoice numbers on the same gate pass are rejected.
+
+3. **Add items for that invoice**
+   - Inside the invoice section, click **"Add Item"**.
+   - A dialog shows all PO items with their remaining pending quantity (ordered minus already received, minus quantity already allocated to sibling invoices on this gate pass).
+   - Select the items present on this invoice and click **"Add Selected"**.
+   - Enter the received quantity for each item (must be greater than zero and within the pending quantity shown).
+
+4. **Repeat for every additional invoice**
+   - Click **"Add Invoice"** again, enter the next invoice number, and add its items and quantities.
+   - Continue until all invoices the driver has presented are recorded.
+
+5. **Review and submit**
+   - Verify vehicle/driver details and all invoice sections.
+   - Click **"Submit"**.
+
+6. **After submission**
+   - The gate pass status changes to "Submitted". Your job is done.
+   - The Gate Pass shows a summary table: **Invoice No → Purchase Receipt → status** for every GRN from this vehicle entry (initially all pending).
+   - You do not need to take any further action on the Purchase Receipts.
+
+> **Stores: creating GRNs**
+> A stores or downstream user (with Purchase Receipt create permission) opens the submitted Gate Pass and clicks **"Create Purchase Receipt"**. This creates one draft Purchase Receipt for every invoice on the gate pass in a single, all-or-nothing action — if any invoice fails, no receipts are created and a clear error is shown. The button is hidden once all invoices already have a Purchase Receipt.
 
 ### Step-by-Step: Creating a Gate In Pass for Subcontracting Order
 
@@ -563,6 +596,19 @@ The system provides three main reports:
 3. Complete the vehicle and driver information
 4. Review all items
 5. Submit the gate pass
+
+### Scenario 9: Supplier Vehicle Arrives with Multiple Invoices on One Purchase Order
+
+**Situation**: A supplier delivers material for one PO, but the driver has three separate delivery challans (invoice numbers).
+
+**What to do**:
+1. Create a Gate In pass and select the Purchase Order.
+2. Enter vehicle and driver details.
+3. Click **"Add Invoice"** and enter the first invoice number; add its items and quantities.
+4. Click **"Add Invoice"** again and enter the second invoice number; add its items and quantities.
+5. Repeat for the third invoice.
+6. Submit the Gate Pass — your job ends here.
+7. A stores user will open the submitted Gate Pass and click **"Create Purchase Receipt"** to generate one draft Purchase Receipt per invoice. No further action is required from you.
 
 ### Scenario 8: Compliance Documents Not Ready
 
